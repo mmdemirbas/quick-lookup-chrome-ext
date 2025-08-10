@@ -1,0 +1,17 @@
+{
+  "name": "quick-lookup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --mode development",
+    "build": "vite build && node scripts/copy-static.js",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.273",
+    "@types/node": "^22.5.4",
+    "typescript": "^5.5.4",
+    "vite": "^5.3.4"
+  }
+}
