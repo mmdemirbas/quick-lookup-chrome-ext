@@ -13,7 +13,9 @@
     "https://*.wikipedia.org/*",
     "https://www.wikidata.org/*",
     "https://upload.wikimedia.org/*",
-    "https://api.dictionaryapi.dev/*"
+    "https://api.dictionaryapi.dev/*",
+    "https://translate.google.com/*",
+    "https://www.deepl.com/*"
   ],
   "background": {
     "service_worker": "background.js",

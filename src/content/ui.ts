@@ -6,6 +6,7 @@ let header: HTMLElement | null = null;
 let bodyEl: HTMLElement | null = null;
 let currentRequestId: string | null = null;
 let pinned = false;
+let lastText: string = '';
 
 export function mountUI() {
     const host = document.createElement('div');
@@ -119,6 +120,7 @@ function ensureInViewport() {
 
 export function openForText(text: string, selectionRect?: DOMRect) {
     if (!container || pinned) return;
+    lastText = text;
     if (selectionRect) {
         const x = selectionRect.left + window.scrollX;
         const y = selectionRect.bottom + window.scrollY + 8;
@@ -159,8 +161,16 @@ function renderOverview({ pending = false, text = '' }: { pending?: boolean; tex
 
     // Translation (links as first-class chips)
     const translateRow = el('div', 'ql-links');
-    translateRow.appendChild(linkChip('Google Translate', '#', 'gtranslate'));
-    translateRow.appendChild(linkChip('DeepL', '#', 'deepl'));
+    {
+        const t = lastText || text;
+        if (t) {
+            const lang = (navigator.language || 'en').split('-')[0];
+            const gUrl = 'https://translate.google.com/?sl=auto&tl=' + encodeURIComponent(lang) + '&text=' + encodeURIComponent(t) + '&op=translate';
+            const dUrl = 'https://www.deepl.com/translate#auto/' + encodeURIComponent(lang) + '/' + encodeURIComponent(t);
+            translateRow.appendChild(linkChip('Google Translate', gUrl, 'gtranslate'));
+            translateRow.appendChild(linkChip('DeepL', dUrl, 'deepl'));
+        }
+    }
     bodyEl.appendChild(translateRow);
 
     // Entity card (prefer first provider with image)
@@ -182,7 +192,7 @@ function renderOverview({ pending = false, text = '' }: { pending?: boolean; tex
             const d = el('div');
             d.appendChild(el('div', '', `${r.title}`));
             if (r.snippet) d.appendChild(el('div', 'ql-muted', r.snippet));
-            if (r.url) { const a = el('a', 'ql-chip', 'Open'); a.href = r.url; a.target = '_blank'; d.appendChild(a); }
+            if (r.url) { const a = el('a', 'ql-chip', 'Open') as HTMLAnchorElement; a.href = r.url; a.target = '_blank'; d.appendChild(a); }
             bodyEl.appendChild(d);
         }
     }
@@ -209,7 +219,7 @@ function renderSources() {
         const row = el('div');
         row.appendChild(el('strong', '', `[${r.providerId}] ${r.title}`));
         if (r.snippet) row.appendChild(el('div', 'ql-muted', r.snippet));
-        if (r.url) { const a = el('a', 'ql-chip', 'Open'); a.href = r.url; a.target = '_blank'; row.appendChild(a); }
+        if (r.url) { const a = el('a', 'ql-chip', 'Open') as HTMLAnchorElement; a.href = r.url; a.target = '_blank'; row.appendChild(a); }
         bodyEl!.appendChild(row);
     }
 }
