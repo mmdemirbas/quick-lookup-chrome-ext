@@ -3,31 +3,38 @@
   "name": "Quick Lookup",
   "version": "0.1.0",
   "description": "Instant lookup of selected text with a movable popup.",
-  "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
+  "permissions": [
+    "storage",
+    "contextMenus",
+    "activeTab",
+    "scripting"
+  ],
   "host_permissions": [
     "https://*.wikipedia.org/*",
     "https://www.wikidata.org/*",
     "https://upload.wikimedia.org/*",
     "https://api.dictionaryapi.dev/*"
   ],
-  "icons": {
-    "16": "icons/16.png",
-    "48": "icons/48.png",
-    "128": "icons/128.png"
-  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "action": {
     "default_title": "Quick Lookup",
-    "default_popup": "action/index.html"
+    "default_popup": "src/action/index.html"
   },
-  "options_page": "options/index.html",
+  "options_ui": {
+    "page": "src/options/index.html",
+    "open_in_tab": false
+  },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ]

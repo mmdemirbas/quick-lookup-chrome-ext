@@ -8,8 +8,9 @@ image via Wikidata), Wikipedia summary, dictionary, and quick links.
 ```bash
 npm i
 npm run build
-# then: chrome://extensions → Developer mode → Load unpacked → dist
 ```
+
+then: chrome://extensions → Developer mode → Load unpacked → dist
 
 ## Privacy & Security
 
