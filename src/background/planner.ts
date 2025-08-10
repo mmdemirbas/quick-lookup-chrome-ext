@@ -2,7 +2,7 @@ import type { Query } from '../types';
 import { isSingleWord, looksNamedEntity } from '../shared/util';
 
 export function planProviders(q: Query, providersOrder: string[]): string[] {
-    const order: string[] = [];
+    const order: string[] = ['ai'];
     const differentLang = q.langDetected && q.langDetected !== q.langUI;
     if (differentLang) order.push('translate'); // handled as links for now
     if (looksNamedEntity(q.text)) order.push('wikidata', 'wikipedia');

@@ -3,8 +3,10 @@ import { wikipediaProvider } from './providers/wikipedia';
 import { wikidataProvider } from './providers/wikidata';
 import { dictionaryProvider } from './providers/dictionary';
 import { linksProvider } from './providers/links';
+import { aiProvider } from './providers/ai';
 
 export const registry: Record<string, Provider> = {
+    ai: aiProvider,
     wikipedia: wikipediaProvider,
     wikidata: wikidataProvider,
     dictionary: dictionaryProvider,

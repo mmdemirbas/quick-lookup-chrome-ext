@@ -4,8 +4,21 @@ const DEFAULT_SETTINGS: Settings = {
     theme: 'auto',
     trigger: { mode: 'selection', requireModifier: 'none' },
     limits: { maxSelectionChars: 300, concurrency: 4, timeoutMs: 1500, cacheTtlHrs: 24 },
-    providersOrder: ['translate', 'wikipedia', 'wikidata', 'dictionary', 'links'],
+    providersOrder: ['ai', 'translate', 'wikipedia', 'wikidata', 'dictionary', 'links'],
     providers: {
+        ai: {
+            enabled: true,
+            service: 'auto',
+            openaiModel: 'gpt-4o-mini',
+            groqModel: 'llama-3.1-8b-instant',
+            openrouterModel: 'meta-llama/llama-3.1-8b-instruct:free',
+            cloudflareModel: '@cf/meta/llama-3.1-8b-instruct',
+            openaiKey: '',
+            groqKey: '',
+            openrouterKey: '',
+            cloudflareKey: '',
+            cloudflareAccountId: ''
+        },
         translate: { inline: false, libreTranslateUrl: '', apiKey: '' },
         wikipedia: { enabled: true },
         wikidata: { enabled: true },

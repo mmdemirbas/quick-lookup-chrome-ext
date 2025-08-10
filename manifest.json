@@ -15,7 +15,11 @@
     "https://upload.wikimedia.org/*",
     "https://api.dictionaryapi.dev/*",
     "https://translate.google.com/*",
-    "https://www.deepl.com/*"
+    "https://www.deepl.com/*",
+    "https://api.openai.com/*",
+    "https://api.groq.com/*",
+    "https://openrouter.ai/*",
+    "https://api.cloudflare.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -23,10 +27,10 @@
   },
   "action": {
     "default_title": "Quick Lookup",
-    "default_popup": "src/action/index.html"
+    "default_popup": "action.html"
   },
   "options_ui": {
-    "page": "src/options/index.html",
+    "page": "options.html",
     "open_in_tab": false
   },
   "content_scripts": [

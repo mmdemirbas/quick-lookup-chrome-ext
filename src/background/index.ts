@@ -27,7 +27,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const query: Query = {
                 text: msg.text,
                 langUI: navigator.language || uiLang,
-                langDetected: detectLanguage(msg.text, navigator.language || uiLang)
+                langDetected: detectLanguage(msg.text, navigator.language || uiLang),
+                pageUrl: sender.tab?.url
             };
 
             const requestId: string = msg.requestId;

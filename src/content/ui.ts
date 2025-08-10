@@ -159,6 +159,22 @@ function renderOverview({ pending = false, text = '' }: { pending?: boolean; tex
     bodyEl.innerHTML = '';
     if (text) bodyEl.appendChild(el('div', 'ql-muted', 'Looking up: ' + text));
 
+    // AI Summary (if available)
+    const ai = aggregate.find(r => r.providerId === 'ai');
+    if (ai?.snippet) {
+        const card = el('div', 'ql-card');
+        const meta = el('div');
+        meta.appendChild(el('div', '', 'AI Summary'));
+        meta.appendChild(el('div', 'ql-muted', ai.snippet));
+        const hint = ai.extra?.typeHint;
+        if (hint) {
+            const badge = el('div', 'ql-chip', `Type: ${hint}`);
+            meta.appendChild(el('div')).appendChild(badge);
+        }
+        card.appendChild(meta);
+        bodyEl.appendChild(card);
+    }
+
     // Translation (links as first-class chips)
     const translateRow = el('div', 'ql-links');
     {

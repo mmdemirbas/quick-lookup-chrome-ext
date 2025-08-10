@@ -1,4 +1,4 @@
-import { debounce } from '../shared/util';
+import { debounce } from './util';
 import { mountUI, openForText, receiveResults } from './ui';
 
 let requireModifier: 'none' | 'Alt' | 'Ctrl' | 'Meta' = 'none';

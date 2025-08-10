@@ -1,10 +1,11 @@
-import { defineConfig } from 'vite';
-import { resolve } from 'node:path';
+import {defineConfig} from 'vite';
+import {resolve} from 'node:path';
 
 export default defineConfig({
     build: {
         outDir: 'dist',
         emptyOutDir: true,
+        cssCodeSplit: false, // <— ensure styles (if any) aren’t split out
         rollupOptions: {
             input: {
                 background: resolve(__dirname, 'src/background/index.ts'),
@@ -20,11 +21,8 @@ export default defineConfig({
                     if (name === 'index' && /content/.test(chunkInfo.facadeModuleId || '')) return 'content.js';
                     return '[name].js';
                 },
-                chunkFileNames: 'chunks/[name].js',
-                assetFileNames: (assetInfo) => {
-                    if (/\.css$/.test(assetInfo.name || '')) return '[name][extname]';
-                    return 'assets/[name][extname]';
-                }
+                // Disable creation of shared chunks so content.js is self‑contained
+                manualChunks: undefined
             }
         }
     }

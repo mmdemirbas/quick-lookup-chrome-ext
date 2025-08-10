@@ -1,4 +1,4 @@
-export type Query = { text: string; langUI: string; langDetected?: string };
+export type Query = { text: string; langUI: string; langDetected?: string; pageUrl?: string };
 export type Result = {
     providerId: string;
     title: string;
@@ -22,6 +22,21 @@ export type Settings = {
     limits: { maxSelectionChars: number; concurrency: number; timeoutMs: number; cacheTtlHrs: number };
     providersOrder: string[];
     providers: {
+        ai: {
+            enabled: boolean;
+            service: 'auto' | 'openai' | 'groq' | 'openrouter' | 'cloudflare' | 'none';
+            // Model names per provider
+            openaiModel: string;
+            groqModel: string;
+            openrouterModel: string;
+            cloudflareModel: string; // e.g. "@cf/meta/llama-3.1-8b-instruct"
+            // API keys / config
+            openaiKey: string;
+            groqKey: string;
+            openrouterKey: string;
+            cloudflareKey: string;
+            cloudflareAccountId: string;
+        };
         translate: { inline: boolean; libreTranslateUrl: string; apiKey: string };
         wikipedia: { enabled: boolean };
         wikidata: { enabled: boolean };
