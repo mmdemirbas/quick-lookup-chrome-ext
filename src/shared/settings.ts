@@ -4,7 +4,7 @@ const DEFAULT_SETTINGS: Settings = {
     theme: 'auto',
     trigger: { mode: 'selection', requireModifier: 'none' },
     limits: { maxSelectionChars: 300, concurrency: 4, timeoutMs: 1500, cacheTtlHrs: 24 },
-    providersOrder: ['ai', 'translate', 'wikipedia', 'wikidata', 'dictionary', 'links'],
+    providersOrder: ['ai', 'wikipedia', 'wikidata', 'dictionary', 'links'],
     providers: {
         ai: {
             enabled: true,
@@ -19,7 +19,6 @@ const DEFAULT_SETTINGS: Settings = {
             cloudflareKey: '',
             cloudflareAccountId: ''
         },
-        translate: { inline: false, libreTranslateUrl: '', apiKey: '' },
         wikipedia: { enabled: true },
         wikidata: { enabled: true },
         dictionary: { enabled: true, langFallback: 'en' },
