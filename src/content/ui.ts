@@ -58,11 +58,17 @@ export function mountUI() {
     header.innerHTML = `
     <div class="ql-title">Quick Lookup</div>
     <div class="ql-actions">
+      <button class="ql-btn" id="ql-options" type="button" title="Options" aria-label="Options">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 0 1 7.04 4.3l.06.06c.51.51 1.31.66 1.82.33A1.65 1.65 0 0 0 10.4 3V3a2 2 0 0 1 4 0v.09c0 .7.4 1.31 1 1.51.51.23 1.31.18 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82c.23.51.6 1 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
       <button class="ql-btn" id="ql-pin" type="button" title="Pin" aria-label="Pin">
         <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 9l7-7"/>
-          <path d="M3 11l10-10 3 3-10 10-4 1z"/>
-          <path d="M2 22l5-5"/>
+          <path d="m9 12 2 2 4-4"/>
+          <path d="M21 12c.552 0 1.005-.449.95-.998a10.009 10.009 0 0 0-8.953-8.953c-.549-.055-.998.398-.998.95v2.002c0 .552.449 1.005.998.95a6.002 6.002 0 0 1 5.953 5.953c.055.549-.398.998-.95.998h-2.002z"/>
+          <path d="M8.5 12.5 16 5l3 3-7.5 7.5-4 1 1-4Z"/>
         </svg>
       </button>
       <button class="ql-btn" id="ql-close" type="button" title="Close" aria-label="Close">
@@ -80,7 +86,6 @@ export function mountUI() {
     <div class="ql-tab active" data-tab="overview">Overview</div>
     <div class="ql-tab" data-tab="sources">Sources</div>
     <div class="ql-tab" data-tab="history">History</div>
-    <div class="ql-tab" data-tab="settings">Settings</div>
   `;
 
     bodyEl = document.createElement('div');
@@ -101,6 +106,8 @@ export function mountUI() {
     // Buttons
     const closeBtn = header!.querySelector('#ql-close') as HTMLButtonElement;
     const pinBtn = header!.querySelector('#ql-pin') as HTMLButtonElement;
+    const optionsBtn = header!.querySelector('#ql-options') as HTMLButtonElement;
+    
     closeBtn.addEventListener('click', () => hide());
     pinBtn.addEventListener('click', () => {
         pinned = !pinned;
@@ -108,6 +115,19 @@ export function mountUI() {
         pinBtn.setAttribute('aria-pressed', String(pinned));
         pinBtn.title = pinned ? 'Unpin' : 'Pin';
         pinBtn.setAttribute('aria-label', pinned ? 'Unpin' : 'Pin');
+    });
+    
+    optionsBtn.addEventListener('click', () => {
+        // Send message to background script to open options page
+        chrome.runtime.sendMessage({ type: 'QL_OPEN_OPTIONS' }).catch((error) => {
+            console.warn('Failed to open options via background script:', error);
+            // Fallback: try opening directly (may not work in all contexts)
+            try {
+                window.open(chrome.runtime.getURL('options.html'), '_blank');
+            } catch (fallbackError) {
+                console.error('Failed to open options page:', fallbackError);
+            }
+        });
     });
 
     // Tabs

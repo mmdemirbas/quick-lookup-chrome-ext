@@ -53,24 +53,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             await pushHistory(query.text, plan);
             chrome.tabs.sendMessage(tabId, { type: 'QL_RESULTS', requestId, results: [], done: true });
             sendResponse({ ok: true });
-        }
-
-        if (msg?.type === 'QL_GET_HISTORY') {
+        } else if (msg?.type === 'QL_GET_HISTORY') {
             const items = await getHistory();
             sendResponse({ items });
-        }
-
-        if (msg?.type === 'QL_TOGGLE_BOOKMARK') {
+        } else if (msg?.type === 'QL_TOGGLE_BOOKMARK') {
             await toggleBookmark(msg.index);
             const items = await getHistory();
             sendResponse({ items });
-        }
-
-        if (msg?.type === 'QL_GET_SETTINGS') {
+        } else if (msg?.type === 'QL_GET_SETTINGS') {
             const s = await getSettings();
             sendResponse({ settings: s });
+        } else if (msg?.type === 'QL_OPEN_OPTIONS') {
+            // Handle options page opening from content script
+            if (chrome.runtime?.openOptionsPage) {
+                chrome.runtime.openOptionsPage();
+            } else {
+                // Fallback for older Chrome versions
+                chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
+            }
         }
 
-    })();
-    return true; // keep channel open for async
+    })().catch(console.error);
+
+    // Return true for async response handling
+    return true;
 });
