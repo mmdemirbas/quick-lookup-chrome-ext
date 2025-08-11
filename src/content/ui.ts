@@ -40,6 +40,8 @@ export function mountUI() {
     .ql-title { font-weight:600; }
     .ql-actions { margin-left:auto; display:flex; gap:6px; }
     .ql-btn { border:1px solid rgba(255,255,255,.2); background:transparent; color:inherit; border-radius:6px; padding:2px 6px; cursor:pointer; }
+    .ql-btn svg { width:16px; height:16px; display:block; }
+    .ql-btn.active { background:rgba(255,255,255,.12); }
     .ql-tabs { display:flex; gap:8px; padding:6px 10px; border-bottom:1px solid rgba(255,255,255,.12); }
     .ql-tab { padding:4px 8px; border-radius:6px; cursor:pointer; }
     .ql-tab.active { background:rgba(255,255,255,.12); }
@@ -56,8 +58,19 @@ export function mountUI() {
     header.innerHTML = `
     <div class="ql-title">Quick Lookup</div>
     <div class="ql-actions">
-      <button class="ql-btn" id="ql-pin">Pin</button>
-      <button class="ql-btn" id="ql-close">Close</button>
+      <button class="ql-btn" id="ql-pin" type="button" title="Pin" aria-label="Pin">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 9l7-7"/>
+          <path d="M3 11l10-10 3 3-10 10-4 1z"/>
+          <path d="M2 22l5-5"/>
+        </svg>
+      </button>
+      <button class="ql-btn" id="ql-close" type="button" title="Close" aria-label="Close">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
     </div>
   `;
 
@@ -86,8 +99,16 @@ export function mountUI() {
     window.addEventListener('mouseup', () => drag = false);
 
     // Buttons
-    header!.querySelector('#ql-close')!.addEventListener('click', () => hide());
-    header!.querySelector('#ql-pin')!.addEventListener('click', (e) => { pinned = !pinned; (e.target as HTMLButtonElement).textContent = pinned ? 'Unpin' : 'Pin'; });
+    const closeBtn = header!.querySelector('#ql-close') as HTMLButtonElement;
+    const pinBtn = header!.querySelector('#ql-pin') as HTMLButtonElement;
+    closeBtn.addEventListener('click', () => hide());
+    pinBtn.addEventListener('click', () => {
+        pinned = !pinned;
+        pinBtn.classList.toggle('active', pinned);
+        pinBtn.setAttribute('aria-pressed', String(pinned));
+        pinBtn.title = pinned ? 'Unpin' : 'Pin';
+        pinBtn.setAttribute('aria-label', pinned ? 'Unpin' : 'Pin');
+    });
 
     // Tabs
     tabs.querySelectorAll('.ql-tab').forEach((el) => {

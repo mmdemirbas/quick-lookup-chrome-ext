@@ -12,6 +12,7 @@ chrome.runtime.sendMessage({ type: 'QL_GET_SETTINGS' }, (resp) => {
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type === 'QL_OPEN_FOR' && msg.text) {
         openForText(msg.text);
+        doQuery(msg.text);
     }
 });
 
@@ -51,6 +52,6 @@ document.addEventListener('mouseup', (ev) => {
 
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type === 'QL_RESULTS') {
-        receiveResults(msg.requestId, msg.done, msg.results || []);
+        receiveResults(msg.requestId, false, msg.results || [], msg.done);
     }
 });
