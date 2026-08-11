@@ -199,23 +199,33 @@ export function applyResult(card: Card, providerId: string, result: ProviderResu
   return card;
 }
 
-/**
- * Whether two texts say the same thing, ignoring case, punctuation and the
- * ellipsis left by truncation.
- *
- * Containment alone is the wrong test. A gloss is often the opening
- * sentence of the paragraph it sits above — that is how the Stack Overflow
- * one is derived — so a prefix check would discard a summary that goes on
- * to say considerably more. Only a near-identical length counts.
- */
-const SAME_TEXT_SLACK = 12;
+/** Below this a summary adds nothing worth its own heading. */
+const MIN_EXTRACT_CHARS = 40;
 
-function sameSentence(a: string, b: string): boolean {
-  const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-  const [x, y] = [norm(a), norm(b)];
-  if (x.length < 20 || y.length < 20) return false;
-  if (Math.abs(x.length - y.length) > SAME_TEXT_SLACK) return false;
-  return x.startsWith(y) || y.startsWith(x);
+/** Words only, so punctuation and the ellipsis from truncation do not count. */
+function normalise(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+/**
+ * What a summary adds beyond the gloss above it, or `undefined` if it does
+ * not begin with that gloss at all.
+ *
+ * Two sources routinely say the same thing first. A tag wiki's gloss *is*
+ * the opening sentence of its own paragraph, and an npm description is
+ * often word for word the tag wiki's opening. Printed unchanged the card
+ * says the same sentence twice, which reads as a bug.
+ */
+export function withoutLead(text: string, lead: string): string | undefined {
+  const wanted = normalise(lead);
+  if (wanted.length < 20) return undefined;
+
+  for (let cut = 1; cut <= text.length; cut++) {
+    const prefix = normalise(text.slice(0, cut));
+    if (prefix === wanted) return text.slice(cut).replace(/^[\s.,;:—–-]+/, '');
+    if (prefix.length > wanted.length) return undefined;
+  }
+  return normalise(text) === wanted ? '' : undefined;
 }
 
 /** Marks every still-pending slot as empty. Called when all providers settle. */
@@ -232,12 +242,17 @@ export function finalise(card: Card, context: string[] = []): Card {
       if (lead) card.slots.gloss = { id: 'gloss', state: 'filled', data: lead.definition };
     }
   }
-  // A one-line source and a paragraph source can carry the same sentence —
-  // an npm description and a tag wiki opening are often word for word
-  // identical. Printed as both the gloss and the summary it reads as a bug.
+  // A summary that opens with the gloss shows only what it adds; one that
+  // is the gloss and nothing more is dropped.
   const gloss = card.slots.gloss?.data;
   const extract = card.slots.extract?.data;
-  if (gloss && extract && sameSentence(gloss, extract.text)) setSlot(card, 'extract', 'empty');
+  if (gloss && extract) {
+    const rest = withoutLead(extract.text, gloss);
+    if (rest !== undefined) {
+      if (rest.length < MIN_EXTRACT_CHARS) setSlot(card, 'extract', 'empty');
+      else setSlot(card, 'extract', 'filled', { ...extract, text: rest });
+    }
+  }
 
   for (const id of card.order) {
     const slot = getSlot(card, id);

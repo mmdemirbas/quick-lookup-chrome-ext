@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyResult, createCard, finalise, layoutFor, rankSenses } from './card.ts';
+import { applyResult, createCard, finalise, layoutFor, rankSenses, withoutLead } from './card.ts';
 import type { Sense } from './types.ts';
 
 const sense = (definition: string, source: string, example?: string): Sense => ({
@@ -97,6 +97,27 @@ test('an exactly matched source outranks a Wikipedia search result', () => {
   assert.equal(card.slots.extract?.data?.source, 'npm');
 });
 
+test('a summary that opens with the gloss keeps only what it adds', () => {
+  // The tag wiki gloss is the first sentence of the tag wiki paragraph, so
+  // this pair is the normal case rather than an edge one.
+  assert.equal(
+    withoutLead(
+      'Webpack is a module bundler. Its main purpose is to bundle JavaScript files.',
+      'Webpack is a module bundler.',
+    ),
+    'Its main purpose is to bundle JavaScript files.',
+  );
+  // Same sentence, different punctuation: nothing is added.
+  assert.equal(withoutLead('React package for working with the DOM', 'React package for working with the DOM.'), '');
+  // A summary about something else is left alone.
+  assert.equal(
+    withoutLead('Kubernetes automates deployment of containerised applications.', 'Webpack is a module bundler.'),
+    undefined,
+  );
+  // Too short to be worth matching on at all.
+  assert.equal(withoutLead('A bundler for the web.', 'A bundler.'), undefined);
+});
+
 test('the same sentence is never shown as both the gloss and the summary', () => {
   const card = createCard('r1', 'react-dom', 'technical');
   applyResult(card, 'stackexchange', { slots: { gloss: 'React package for working with the DOM.' } });
@@ -121,6 +142,7 @@ test('the same sentence is never shown as both the gloss and the summary', () =>
   });
   finalise(fuller);
   assert.equal(fuller.slots.extract?.state, 'filled');
+  assert.match(fuller.slots.extract?.data?.text ?? '', /^Its main purpose/);
 });
 
 test('empty arrays do not mark a slot as filled', () => {
