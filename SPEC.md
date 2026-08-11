@@ -118,16 +118,30 @@ Ten guards keep it quiet. All are default behaviour, not settings:
 
 ### 5.2 Modifier and hover
 
-Hold the modifier and point at a word. No selection needed. The span
-starts at the token under the cursor and grows to the longest known entry
-that starts there.
+Hold the modifier and point at a word. No selection needed.
 
-While the modifier is held:
+Hovering can only ever indicate one word, so the arrow keys are part of
+the trigger rather than an extra. Each arrow grows the span on its own
+side; holding shift shrinks that side instead:
 
-- `→` extends the span one word right, `←` shrinks it.
-- `Shift`+`←` extends the span one word left.
+| Key | Effect |
+|---|---|
+| `→` | One more word on the right |
+| `←` | One more word on the left |
+| `Shift`+`→` | One fewer word on the right |
+| `Shift`+`←` | One fewer word on the left |
 
-The card re-queries as the span changes.
+The span never collapses below one word and never leaves the text node,
+so a held key is safe. The card re-queries as the span changes: the dwell
+applies to pointer movement, but an arrow key fires at once, because it
+is a deliberate act rather than a side effect of moving the mouse.
+
+Word boundaries come from `Intl.Segmenter`, so scripts that do not
+separate words with spaces behave correctly.
+
+The pointer listener is attached when the modifier goes down and removed
+when it comes up. A page where the reader never hovers pays nothing per
+mouse move.
 
 ### 5.3 Other paths
 

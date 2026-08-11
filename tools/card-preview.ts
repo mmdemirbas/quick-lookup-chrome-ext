@@ -10,6 +10,7 @@
  * open dist/preview/index.html directly.
  */
 import { CardView } from '../src/content/card-view.ts';
+import { HoverLookup } from '../src/content/hover.ts';
 import { applyResult, createCard, finalise } from '../src/core/card.ts';
 import { linksFor } from '../src/core/providers/links.ts';
 import type { Card } from '../src/core/types.ts';
@@ -144,7 +145,28 @@ pendingButton.addEventListener('click', () => {
 });
 bar?.append(pendingButton);
 
+// Hover trigger, mounted over the prose on this page so the caret
+// resolution, the overlay and the arrow-key span resize can be driven by an
+// automated check rather than only by hand.
+const hoverLog: Array<{ text: string; rect: DOMRect }> = [];
+new HoverLookup({
+  enabled: () => true,
+  modifier: () => 'alt',
+  onLookup: (text, rect) => {
+    hoverLog.push({ text, rect });
+    const readout = document.getElementById('hover-readout');
+    if (readout) readout.textContent = text;
+  },
+  onCancel: () => {},
+});
+
 // Exposed so an automated check can drive the harness without clicking.
-(globalThis as unknown as { showSample: typeof show }).showSample = show;
+Object.assign(globalThis as object, {
+  showSample: show,
+  hoverLog,
+  hoverBoxes: () =>
+    [...(document.querySelector('quick-lookup-hover')?.shadowRoot?.querySelectorAll('.box') ?? [])]
+      .map((b) => (b as HTMLElement).getBoundingClientRect()),
+});
 
 show('word');

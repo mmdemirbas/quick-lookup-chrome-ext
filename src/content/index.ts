@@ -12,6 +12,7 @@ import type { Card } from '../core/types.ts';
 import { ext } from '../platform/browser.ts';
 import { CardView } from './card-view.ts';
 import { SelectionHandle } from './handle.ts';
+import { HoverLookup } from './hover.ts';
 import { contextForSelection, resetPageProfile } from './page-context.ts';
 import type { ToContent } from '../shared/messages.ts';
 
@@ -52,6 +53,27 @@ const handle = new SelectionHandle(() => {
   const rect = pendingRect ?? rectOf(selection);
   handle.hide();
   if (text.trim() && rect) startLookup(text, rect, selection);
+});
+
+/**
+ * Hover is a second trigger, not a replacement for selection.
+ *
+ * Selection is exact because the reader drew the boundary. Hover is fast
+ * because it needs no gesture at all, and the arrow keys make it exact
+ * afterwards. Both feed the same pipeline.
+ */
+const hover = new HoverLookup({
+  enabled: () =>
+    settings.trigger.hoverEnabled && triggerModeFor(settings, location.hostname) !== 'off',
+  modifier: () => settings.trigger.modifier,
+  onLookup: (text, rect) => {
+    cancelDwell();
+    handle.hide();
+    // A hovered span has no selection, so there is no range to read local
+    // context from; the page profile still applies.
+    startLookup(text, rect, null);
+  },
+  onCancel: () => closeCard('navigated'),
 });
 
 function rectOf(selection: Selection | null): DOMRect | undefined {
@@ -131,7 +153,7 @@ function evaluateSelection(modifierHeld: boolean): void {
 
   const facts = selectionFacts(text, {
     inEditable: isEditable(anchor),
-    insideOwnUi: card.contains(anchor) || handle.contains(anchor),
+    insideOwnUi: card.contains(anchor) || handle.contains(anchor) || hover.contains(anchor),
     modifierHeld,
   });
 
@@ -224,7 +246,10 @@ window.addEventListener(
   () => {
     cancelDwell();
     handle.hide();
-    if (card.isOpen) closeCard('navigated');
+    // While the modifier is held the reader is still pointing at text, so
+    // scrolling is navigation within the same lookup rather than the end of
+    // it. The overlay follows on the next pointer move.
+    if (card.isOpen && !hover.isActive) closeCard('navigated');
   },
   { passive: true, capture: true },
 );
