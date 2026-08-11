@@ -83,6 +83,46 @@ function entityCard(): Card {
   return finalise(card, []);
 }
 
+/**
+ * The technical layout, with the payloads the real sources returned for
+ * `webpack` on a JavaScript page: a definition from the tag wiki, a
+ * paragraph beneath it, and the package facts alongside.
+ */
+function technicalCard(): Card {
+  const card = createCard('preview-technical', 'webpack', 'technical');
+  applyResult(card, 'stackexchange', {
+    slots: {
+      gloss: 'Webpack is a module bundler.',
+      extract: {
+        text: 'Webpack is a module bundler. Its main purpose is to bundle JavaScript files for usage in a browser, yet it can also transform, bundle, or package just about any resource or asset.',
+        source: 'stackexchange',
+        url: 'https://stackoverflow.com/questions/tagged/webpack',
+      },
+      links: [
+        {
+          id: 'so-tag-webpack',
+          label: 'Tagged webpack',
+          url: 'https://stackoverflow.com/questions/tagged/webpack',
+        },
+      ],
+    },
+  });
+  applyResult(card, 'registry', {
+    slots: {
+      facts: [
+        { label: 'Version', value: '5.109.2', source: 'npm' },
+        { label: 'License', value: 'MIT', source: 'npm' },
+      ],
+      links: [
+        { id: 'npm-package', label: 'npm', url: 'https://www.npmjs.com/package/webpack' },
+        { id: 'npm-homepage', label: 'Homepage', url: 'https://github.com/webpack/webpack' },
+      ],
+    },
+  });
+  applyResult(card, 'links', { slots: { links: linksFor('technical', 'webpack', 'en') } });
+  return finalise(card, []);
+}
+
 /** A long word with no spaces, to prove the header cannot burst the card. */
 function overflowCard(): Card {
   const query = 'Pneumonoultramicroscopicsilicovolcanoconiosis';
@@ -106,6 +146,7 @@ function overflowCard(): Card {
 const SAMPLES: Array<{ id: string; label: string; build: () => Card }> = [
   { id: 'word', label: 'Word', build: wordCard },
   { id: 'entity', label: 'Entity', build: entityCard },
+  { id: 'technical', label: 'Technical', build: technicalCard },
   { id: 'overflow', label: 'Long headword', build: overflowCard },
 ];
 

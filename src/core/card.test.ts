@@ -106,14 +106,16 @@ test('the same sentence is never shown as both the gloss and the summary', () =>
   finalise(card);
   assert.equal(card.slots.extract?.state, 'empty');
 
-  // A summary that genuinely says more than the gloss is kept.
-  const fuller = createCard('r2', 'Kubernetes', 'technical');
-  applyResult(fuller, 'stackexchange', { slots: { gloss: 'Kubernetes is a container orchestrator.' } });
-  applyResult(fuller, 'wikipedia', {
+  // A summary that genuinely says more than the gloss is kept — even though
+  // it opens with the gloss word for word, which is how that gloss was
+  // derived in the first place.
+  const fuller = createCard('r2', 'webpack', 'technical');
+  applyResult(fuller, 'stackexchange', { slots: { gloss: 'Webpack is a module bundler.' } });
+  applyResult(fuller, 'stackexchange', {
     slots: {
       extract: {
-        text: 'Kubernetes, also known as K8s, is an open-source container orchestration system for automating deployment.',
-        source: 'wikipedia',
+        text: 'Webpack is a module bundler. Its main purpose is to bundle JavaScript files for usage in a browser, yet it can also transform, bundle, or package just about any resource or asset.',
+        source: 'stackexchange',
       },
     },
   });

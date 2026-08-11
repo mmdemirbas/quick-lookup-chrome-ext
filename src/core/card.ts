@@ -199,11 +199,22 @@ export function applyResult(card: Card, providerId: string, result: ProviderResu
   return card;
 }
 
-/** Ignores case, punctuation and the ellipsis left by truncation. */
+/**
+ * Whether two texts say the same thing, ignoring case, punctuation and the
+ * ellipsis left by truncation.
+ *
+ * Containment alone is the wrong test. A gloss is often the opening
+ * sentence of the paragraph it sits above — that is how the Stack Overflow
+ * one is derived — so a prefix check would discard a summary that goes on
+ * to say considerably more. Only a near-identical length counts.
+ */
+const SAME_TEXT_SLACK = 12;
+
 function sameSentence(a: string, b: string): boolean {
   const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   const [x, y] = [norm(a), norm(b)];
   if (x.length < 20 || y.length < 20) return false;
+  if (Math.abs(x.length - y.length) > SAME_TEXT_SLACK) return false;
   return x.startsWith(y) || y.startsWith(x);
 }
 
