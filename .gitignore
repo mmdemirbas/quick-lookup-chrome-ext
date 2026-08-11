@@ -3,4 +3,15 @@
 
 # Node.js
 node_modules/
+
+# Build output (extension bundle + docs site build)
 dist/
+docs/dist/
+
+# Tooling artifacts
+.playwright-mcp/
+docs/_oku
+docs/index.html
+
+# macOS
+.DS_Store
