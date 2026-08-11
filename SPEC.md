@@ -221,14 +221,29 @@ Rules for every source:
 
 A new selection aborts every request in flight.
 
-Cache has two layers: an in-memory map in the service worker, and
-`storage.local` with a time to live behind it.
+Cache has two layers, because they solve different problems. The
+in-memory map in the service worker only survives within a burst, since
+the worker is torn down after about thirty seconds idle. The
+`storage.local` layer behind it is what makes a word looked up yesterday
+instant today.
+
+A card is cached only when at least one source answered, so a transient
+outage cannot stick for a week.
 
 ## 11. Storage
 
 - `storage.sync` — preferences only. Never credentials.
-- `storage.local` — cache, history, per-site settings, and any key the
-  user chooses to add.
+- `storage.local` — cache, history, and any key the user chooses to add.
+  Local rather than sync because the cache would pass the sync quota
+  within a day, and history records what was being read.
+
+Cache entries are stored one key per entry, with a short index of key and
+timestamp pairs for eviction. One large map would have to be rewritten on
+every lookup, which is the opposite of what a cache is for.
+
+History keeps the most recent 300 lookups. Repeating a query moves its
+entry rather than adding one. A starred entry survives both the cap and
+Clear.
 
 ## 12. Security and privacy
 

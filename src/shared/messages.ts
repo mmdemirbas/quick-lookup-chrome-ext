@@ -19,6 +19,9 @@ export type SetSiteModeMessage = {
   mode: Settings['trigger']['mode'] | null;
 };
 export type GetStatusMessage = { type: 'QL_GET_STATUS' };
+export type GetHistoryMessage = { type: 'QL_GET_HISTORY' };
+export type StarMessage = { type: 'QL_STAR'; query: string; host: string };
+export type ClearHistoryMessage = { type: 'QL_CLEAR_HISTORY' };
 
 export type ToBackground =
   | LookupMessage
@@ -26,7 +29,10 @@ export type ToBackground =
   | GetSettingsMessage
   | SaveSettingsMessage
   | SetSiteModeMessage
-  | GetStatusMessage;
+  | GetStatusMessage
+  | GetHistoryMessage
+  | StarMessage
+  | ClearHistoryMessage;
 
 /** Partial results stream to the content script as separate messages. */
 export type CardUpdateMessage = { type: 'QL_CARD'; card: Card };

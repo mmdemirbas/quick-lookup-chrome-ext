@@ -9,6 +9,8 @@ import { runLookup } from '../core/lookup.ts';
 import { extractSignals } from '../core/intent/signals.ts';
 import { routeIntent } from '../core/intent/router.ts';
 import { LruCache, lookupKey } from '../core/cache.ts';
+import { PersistentStore } from '../core/store.ts';
+import { localStore } from '../platform/storage.ts';
 import { DEFAULT_SETTINGS, mergeSettings, type Settings } from '../core/settings.ts';
 import type { Card, LookupRequest, Provider } from '../core/types.ts';
 import { freeDictionaryProvider } from '../core/providers/free-dictionary.ts';
@@ -31,7 +33,24 @@ const PROVIDERS: Provider[] = [
 ];
 
 let settings: Settings = DEFAULT_SETTINGS;
-const cache = new LruCache<Card>({ maxEntries: 200, ttlMs: 7 * 24 * 60 * 60 * 1000 });
+
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Two cache layers, because they solve different problems.
+ *
+ * The service worker is torn down after about thirty seconds of inactivity,
+ * so an in-memory cache alone would be cold for almost every real lookup —
+ * it only helps within a burst, such as reading four words in one paragraph.
+ * The persistent layer is what makes a word looked up yesterday instant
+ * today.
+ */
+const memory = new LruCache<Card>({ maxEntries: 60, ttlMs: CACHE_TTL_MS });
+const persistent = new PersistentStore<Card>(localStore(), {
+  maxEntries: 400,
+  ttlMs: CACHE_TTL_MS,
+  maxHistory: 300,
+});
 
 /** One controller per tab: a new lookup cancels whatever that tab was doing. */
 const inFlight = new Map<number, AbortController>();
@@ -97,9 +116,21 @@ async function handleLookup(
   const decision = routeIntent(extractSignals(trimmed, page), lang);
   const key = lookupKey(trimmed, decision.intent, page.host ?? '', lang);
 
-  const cached = cache.get(key);
+  const remember = (card: Card) =>
+    persistent.recordLookup({
+      query: trimmed,
+      intent: decision.intent,
+      host: page.host ?? '',
+      at: Date.now(),
+      ...(card.slots.gloss?.data ? { gloss: card.slots.gloss.data } : {}),
+    });
+
+  const cached = memory.get(key) ?? (await persistent.read(key));
   if (cached) {
+    if (controller.signal.aborted) return;
+    memory.set(key, cached);
     send(tabId, { ...cached, requestId });
+    void remember(cached);
     return;
   }
 
@@ -118,7 +149,14 @@ async function handleLookup(
 
     if (controller.signal.aborted) return;
     if (await addGloss(card, settings.appearance.glossLanguage)) send(tabId, card);
-    cache.set(key, card);
+
+    // Only cache a card that actually answered. Caching an empty result
+    // would make a transient outage stick for a week.
+    if (card.sources.some((source) => source !== 'links')) {
+      memory.set(key, card);
+      void persistent.write(key, card);
+    }
+    void remember(card);
   } finally {
     clearTimeout(budget);
     if (inFlight.get(tabId) === controller) inFlight.delete(tabId);
@@ -167,6 +205,18 @@ ext.runtime.onMessage.addListener((message: ToBackground, sender, sendResponse) 
       });
       return true;
 
+    case 'QL_GET_HISTORY':
+      void persistent.history().then(sendResponse);
+      return true;
+
+    case 'QL_STAR':
+      void persistent.toggleStar(message.query, message.host).then(sendResponse);
+      return true;
+
+    case 'QL_CLEAR_HISTORY':
+      void persistent.clearHistory().then(() => persistent.history().then(sendResponse));
+      return true;
+
     default:
       return false;
   }
@@ -178,6 +228,13 @@ ext.runtime.onInstalled.addListener(() => {
     title: 'Quick Lookup "%s"',
     contexts: ['selection'],
   });
+  // Expired entries are dropped on read, but a key never read again would
+  // otherwise occupy storage forever.
+  void persistent.prune();
+});
+
+ext.runtime.onStartup?.addListener(() => {
+  void persistent.prune();
 });
 
 ext.contextMenus.onClicked.addListener((info, tab) => {

@@ -3,6 +3,7 @@
  * and let the current site be quietened without opening the full settings.
  */
 import { mergeSettings, triggerModeFor, type TriggerMode } from '../core/settings.ts';
+import type { HistoryItem } from '../core/store.ts';
 import { ext } from '../platform/browser.ts';
 import type { StatusResponse } from '../shared/messages.ts';
 
@@ -37,6 +38,67 @@ void ext.runtime.sendMessage({ type: 'QL_GET_STATUS' }).then((status: StatusResp
   const versionLine = document.createElement('div');
   versionLine.textContent = `Version ${version}`;
   statusBox.append(versionLine);
+});
+
+/**
+ * Recent lookups, starred ones first.
+ *
+ * Starring is what turns the history from a log into a list worth keeping:
+ * a starred entry survives both the size cap and Clear.
+ */
+function renderHistory(items: HistoryItem[]): void {
+  const list = document.getElementById('history');
+  if (!list) return;
+  list.replaceChildren();
+
+  if (items.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'empty';
+    empty.textContent = 'Nothing looked up yet.';
+    list.append(empty);
+    return;
+  }
+
+  const ordered = [...items].sort(
+    (a, b) => Number(b.starred ?? false) - Number(a.starred ?? false) || b.at - a.at,
+  );
+
+  for (const item of ordered.slice(0, 40)) {
+    const row = document.createElement('li');
+
+    const star = document.createElement('button');
+    star.type = 'button';
+    star.className = item.starred ? 'star on' : 'star';
+    star.textContent = item.starred ? '★' : '☆';
+    star.title = item.starred ? 'Unstar' : 'Keep this one';
+    star.addEventListener('click', () => {
+      void ext.runtime
+        .sendMessage({ type: 'QL_STAR', query: item.query, host: item.host })
+        .then((next: HistoryItem[]) => renderHistory(next));
+    });
+
+    const word = document.createElement('span');
+    word.className = 'word';
+    word.textContent = item.query;
+
+    const gloss = document.createElement('span');
+    gloss.className = 'gloss';
+    gloss.textContent = item.gloss ?? item.host;
+    gloss.title = `${item.gloss ?? ''} — ${item.host}`.trim();
+
+    row.append(star, word, gloss);
+    list.append(row);
+  }
+}
+
+document.getElementById('clearHistory')?.addEventListener('click', () => {
+  void ext.runtime
+    .sendMessage({ type: 'QL_CLEAR_HISTORY' })
+    .then((next: HistoryItem[]) => renderHistory(next));
+});
+
+void ext.runtime.sendMessage({ type: 'QL_GET_HISTORY' }).then((items: HistoryItem[]) => {
+  renderHistory(Array.isArray(items) ? items : []);
 });
 
 async function currentHost(): Promise<string | undefined> {
