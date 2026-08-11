@@ -48,8 +48,9 @@ that, but a network outage is not a reason to block a commit.
 ## How it decides what to show
 
 1. **Signals.** Token count, casing, script, identifier style, shape
-   patterns, whether the selection is inside code, and the host. All
-   local, under a millisecond.
+   patterns, whether the selection is inside code, the host, and which
+   software ecosystems the page shows evidence of. All local, under a
+   millisecond.
 2. **Intent.** One of word, phrase, entity, technical, citation,
    quantity, foreign. When the answer is ambiguous the router widens the
    fetch rather than guessing — providers run in parallel and merge, so
@@ -59,7 +60,10 @@ that, but a network outage is not a reason to block a commit.
 4. **Page context.** The page is profiled once — title, headings,
    description — and that profile biases the search and ranks the senses.
    This is what makes `manifest` on an Iceberg page resolve to Apache
-   Iceberg rather than the everyday adjective.
+   Iceberg rather than the everyday adjective. It also decides which
+   sources are worth asking: a package registry answers only on a page
+   about that ecosystem, because `iceberg` is a real npm package and it
+   is not the one anyone reading about table formats means.
 
 ## Triggering
 
@@ -79,7 +83,7 @@ current site without opening settings.
 | `contextMenus` | Right-click lookup on a selection |
 | `activeTab` | Reading the selection when triggered by the shortcut |
 | `<all_urls>` content script | The selection handle must be able to appear on any page. The always-on script only listens for selection changes; everything else is loaded on first use |
-| Six host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Wikidata and Wikimedia images. Each is listed with its reason in `manifest.config.js` |
+| Ten host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Wikidata, Wikimedia images, Stack Exchange, npm, PyPI, crates.io and MDN. Each is listed with its reason in `manifest.config.js`. The last five are asked only for technical terms, and the registries only on a page about that ecosystem |
 
 ## Privacy
 

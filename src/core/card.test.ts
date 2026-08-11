@@ -84,6 +84,19 @@ test('the extract slot is owned by source priority, not by who answered first', 
   assert.deepEqual(fast.slots.extract?.data, slow.slots.extract?.data);
 });
 
+test('an exactly matched source outranks a Wikipedia search result', () => {
+  // Searching Wikipedia for "react-dom" returns the general article about
+  // JavaScript libraries. It is related, and it is not what was selected.
+  const card = createCard('r1', 'react-dom', 'technical');
+  applyResult(card, 'wikipedia', {
+    slots: { extract: { text: 'A JavaScript library is pre-written code.', source: 'wikipedia-search' } },
+  });
+  applyResult(card, 'registry', {
+    slots: { extract: { text: 'React package for working with the DOM.', source: 'npm' } },
+  });
+  assert.equal(card.slots.extract?.data?.source, 'npm');
+});
+
 test('the same sentence is never shown as both the gloss and the summary', () => {
   const card = createCard('r1', 'react-dom', 'technical');
   applyResult(card, 'stackexchange', { slots: { gloss: 'React package for working with the DOM.' } });

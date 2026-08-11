@@ -19,6 +19,7 @@ import { datamuseProvider } from '../core/providers/datamuse.ts';
 import { wikipediaProvider } from '../core/providers/wikipedia.ts';
 import { stackExchangeProvider } from '../core/providers/stackexchange.ts';
 import { registryProvider } from '../core/providers/registry.ts';
+import { mdnProvider } from '../core/providers/mdn.ts';
 import { ext } from '../platform/browser.ts';
 import { createHttpClient } from '../platform/http.ts';
 import { detectCapabilities, translate, uiLanguage } from '../platform/ai.ts';
@@ -31,6 +32,7 @@ const PROVIDERS: Provider[] = [
   wikipediaProvider,
   stackExchangeProvider,
   registryProvider,
+  mdnProvider,
   freeDictionaryProvider,
   wiktionaryProvider,
   datamuseProvider,

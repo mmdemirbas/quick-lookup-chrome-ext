@@ -18,6 +18,7 @@ import { datamuseProvider } from '../src/core/providers/datamuse.ts';
 import { wikipediaProvider } from '../src/core/providers/wikipedia.ts';
 import { stackExchangeProvider } from '../src/core/providers/stackexchange.ts';
 import { registryProvider } from '../src/core/providers/registry.ts';
+import { mdnProvider } from '../src/core/providers/mdn.ts';
 import type { Card, HttpClient, PageContext } from '../src/core/types.ts';
 
 const UA = 'QuickLookup/0.2.0 (https://github.com/mmdemirbas/quick-lookup-chrome-ext)';
@@ -37,6 +38,7 @@ const providers = [
   wikipediaProvider,
   stackExchangeProvider,
   registryProvider,
+  mdnProvider,
   freeDictionaryProvider,
   wiktionaryProvider,
   datamuseProvider,
@@ -130,6 +132,16 @@ const CASES: Case[] = [
       card.slots.facts?.data?.some((f) => f.label === 'Version' && f.source === 'npm')
         ? undefined
         : 'expected a current version from npm for a well known package',
+  },
+  {
+    text: 'flexbox',
+    page: {
+      host: 'developer.mozilla.org',
+      title: 'CSS layout',
+      topicTerms: ['css', 'layout', 'browser', 'html'],
+    },
+    expect: (card) =>
+      card.sources.includes('mdn') ? undefined : 'expected the web platform reference to answer',
   },
 ];
 

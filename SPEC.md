@@ -190,6 +190,20 @@ Several providers may write the same slot. Merge rules are per slot:
 first non-empty for scalars, deduplicated union for lists, with the
 source recorded for every item.
 
+Two rules exist because more than one source can answer the same
+question:
+
+- **`extract` is owned by source priority, not by arrival order.** An
+  article whose title resolved directly leads. A Wikipedia *search* result
+  comes last, because it is whatever the search engine judged related —
+  for a package name, usually the general article about the language.
+  Without this the paragraph shown would depend on which request returned
+  first, so the same lookup would differ between a fast network and a slow
+  one.
+- **The same sentence is never shown twice.** A registry description and a
+  tag wiki opening are often word for word identical; printed as both the
+  gloss and the summary it reads as a bug.
+
 ## 9. Sources
 
 More than one source per job. Backups are expected, and mixing produces a
@@ -203,6 +217,7 @@ richer answer than any single source.
 | Wikipedia REST | Entity and technical summaries | Edge cached, the fastest measured source |
 | Stack Overflow tag wikis | Definitions of programming terms | 300/day/IP without a key. Technical intent only |
 | npm, PyPI, crates.io | Package version, licence, description | One registry per lookup, chosen by the page |
+| MDN | Web platform reference | Site search, not a published API. Web and npm pages only |
 
 Rules for every source:
 

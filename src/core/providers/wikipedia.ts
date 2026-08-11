@@ -111,10 +111,22 @@ function usable(summary: SummaryResponse): boolean {
   return Boolean(summary.extract) && summary.type !== 'disambiguation';
 }
 
+/**
+ * How the article was found, which is how much to trust its paragraph.
+ *
+ * A title that resolved directly is about the selection. A search result is
+ * about something the search engine judged related, which for a package
+ * name is often the general article about the language. Recording the
+ * difference lets composition prefer an exactly matched source over this
+ * one without either provider knowing about the other.
+ */
+const SOURCE_SEARCHED = 'wikipedia-search';
+
 function result(
   title: string,
   extract: string,
   url: string,
+  source: string,
   description?: string,
   imageUrl?: string,
 ): ProviderResult {
@@ -129,7 +141,7 @@ function result(
         url,
         source: SOURCE,
       },
-      extract: { text, source: SOURCE, url },
+      extract: { text, source, url },
     },
   };
 }
@@ -165,6 +177,7 @@ export const wikipediaProvider: Provider = {
           direct.title ?? query,
           direct.extract ?? '',
           direct.content_urls?.desktop?.page ?? articleUrl(lang, direct.title ?? query),
+          SOURCE,
           direct.description,
           direct.thumbnail?.source,
         );
@@ -210,6 +223,7 @@ export const wikipediaProvider: Provider = {
       candidate.title,
       candidate.extract,
       articleUrl(lang, candidate.title),
+      SOURCE_SEARCHED,
       candidate.description,
       candidate.thumbnail?.source,
     );

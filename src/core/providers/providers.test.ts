@@ -8,6 +8,7 @@ import { biasTerms, chooseCandidate, wikipediaProvider } from './wikipedia.ts';
 import { linksFor } from './links.ts';
 import { isDefinition, stackExchangeProvider, tagCandidates } from './stackexchange.ts';
 import { packageName, registryProvider } from './registry.ts';
+import { mdnProvider, titleMatches } from './mdn.ts';
 
 /** Serves canned payloads by URL substring, and records what was requested. */
 function stubHttp(routes: Array<[string, unknown]>): HttpClient & { calls: string[] } {
@@ -163,6 +164,9 @@ test('wikipedia answers from the cached summary without touching search', async 
   assert.equal(result?.slots.entity?.title, 'Alan Turing');
   assert.equal(result?.slots.entity?.imageUrl, 'https://upload.wikimedia.org/turing.jpg');
   assert.match(result?.slots.extract?.text ?? '', /^Alan Mathison Turing/);
+  // A title that resolved directly is certainly about the selection, and
+  // composition prefers it over anything that had to be searched for.
+  assert.equal(result?.slots.extract?.source, 'wikipedia');
   assert.equal(http.calls.length, 1, 'exactly one request for a direct hit');
   assert.match(http.calls[0] ?? '', /page\/summary\/Alan_Turing$/);
 });
@@ -194,6 +198,9 @@ test('a missing article falls back to one search that carries the extract', asyn
   assert.equal(result?.slots.entity?.imageUrl, 'https://upload.wikimedia.org/turing.jpg');
   // No follow-up summary request: the search already returned the extract.
   assert.equal(http.calls.length, 2, 'direct summary, then one search');
+  // Marked as searched-for, so a source that matched the term exactly owns
+  // the paragraph instead of this one.
+  assert.equal(result?.slots.extract?.source, 'wikipedia-search');
 });
 
 test('page topic biases the search query, and over-constraining retries plain', async () => {
@@ -456,6 +463,42 @@ test('a registry that is down leaves the slot empty rather than failing the card
     await registryProvider.run({ ...request, text: 'nosuchpackage', page: NPM_PAGE }, context(http)),
     null,
   );
+});
+
+const WEB_PAGE = { host: 'developer.mozilla.org', title: 'CSS layout' };
+
+test('an MDN title is a match when it contains the selection, not only when equal', () => {
+  // Titles carry their context, so equality would reject most real hits.
+  assert.ok(titleMatches('fetch', 'Window: fetch() method'));
+  assert.ok(titleMatches('flexbox', 'Flexbox'));
+  assert.ok(titleMatches('grid template areas', 'CSS grid-template-areas property'));
+  assert.ok(!titleMatches('planner', 'Using CSS transitions'));
+  assert.ok(!titleMatches('', 'Anything'));
+});
+
+test('mdn discards a loosely related document rather than presenting it as the answer', async () => {
+  const http = stubHttp([
+    [
+      'developer.mozilla.org',
+      {
+        documents: [
+          { title: 'Using CSS transitions', summary: 'Transitions…', mdn_url: '/en-US/docs/a' },
+          { title: 'Window: fetch() method', summary: 'Starts a request.', mdn_url: '/en-US/docs/b' },
+        ],
+      },
+    ],
+  ]);
+
+  const result = await mdnProvider.run({ ...request, text: 'fetch', page: WEB_PAGE }, context(http));
+  assert.ok(result);
+  assert.equal(result.slots.extract?.url, 'https://developer.mozilla.org/en-US/docs/b');
+});
+
+test('mdn is not asked outside the web and npm ecosystems', async () => {
+  const http = stubHttp([['developer.mozilla.org', { documents: [] }]]);
+  const page = { host: 'docs.python.org', title: 'The Python tutorial' };
+  assert.equal(await mdnProvider.run({ ...request, text: 'range', page }, context(http)), null);
+  assert.equal(http.calls.length, 0);
 });
 
 test('quick links differ by intent and are all absolute https URLs', () => {

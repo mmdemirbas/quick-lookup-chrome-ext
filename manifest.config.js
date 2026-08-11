@@ -19,6 +19,7 @@ export const DATA_HOSTS = [
   'https://registry.npmjs.org/*', // package facts, asked only on JavaScript pages
   'https://pypi.org/*', // package facts, asked only on Python pages
   'https://crates.io/*', // package facts, asked only on Rust pages
+  'https://developer.mozilla.org/*', // web platform reference, asked only on web pages
 ];
 
 const BASE = {

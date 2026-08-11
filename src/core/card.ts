@@ -114,11 +114,22 @@ const RELATED_PRIORITY: Record<Related['kind'], number> = {
  * Several providers can write a paragraph about a technical term, and
  * without a rule the winner would be whichever request happened to return
  * first — so the same lookup would show a different paragraph on a slow
- * network than on a fast one. Wikipedia leads because its summary is the
- * fuller prose; Stack Overflow's crisper definition is already the gloss
- * directly above it.
+ * network than on a fast one. An article whose title resolved directly
+ * leads, because its summary is the fuller prose and it is certainly about
+ * the selection. A Wikipedia *search* result comes last: it is whatever the
+ * search engine judged related, which for a package name is usually the
+ * general article about the language, and any source that matched the term
+ * exactly says more.
  */
-const EXTRACT_PRIORITY = ['wikipedia', 'stackexchange', 'mdn', 'npm', 'pypi', 'crates'];
+const EXTRACT_PRIORITY = [
+  'wikipedia',
+  'stackexchange',
+  'mdn',
+  'npm',
+  'pypi',
+  'crates',
+  'wikipedia-search',
+];
 
 function extractRank(source: string): number {
   const at = EXTRACT_PRIORITY.indexOf(source);
