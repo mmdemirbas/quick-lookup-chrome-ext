@@ -108,6 +108,23 @@ const RELATED_PRIORITY: Record<Related['kind'], number> = {
   related: 3,
 };
 
+/**
+ * Which source owns `extract` when more than one can fill it.
+ *
+ * Several providers can write a paragraph about a technical term, and
+ * without a rule the winner would be whichever request happened to return
+ * first — so the same lookup would show a different paragraph on a slow
+ * network than on a fast one. Wikipedia leads because its summary is the
+ * fuller prose; Stack Overflow's crisper definition is already the gloss
+ * directly above it.
+ */
+const EXTRACT_PRIORITY = ['wikipedia', 'stackexchange', 'mdn', 'npm', 'pypi', 'crates'];
+
+function extractRank(source: string): number {
+  const at = EXTRACT_PRIORITY.indexOf(source);
+  return at === -1 ? EXTRACT_PRIORITY.length : at;
+}
+
 function mergeSlot<K extends SlotId>(
   id: K,
   existing: SlotData[K] | undefined,
@@ -134,6 +151,13 @@ function mergeSlot<K extends SlotId>(
         ...(incoming as SlotData['pronunciation']),
       ];
       return dedupeBy(merged, (p) => p.ipa ?? p.audio ?? '') as SlotData[K];
+    }
+    case 'extract': {
+      const held = existing as SlotData['extract'];
+      const offered = incoming as SlotData['extract'];
+      return (extractRank(offered.source) < extractRank(held.source)
+        ? offered
+        : held) as SlotData[K];
     }
     case 'links':
     case 'facts': {

@@ -66,6 +66,24 @@ test('a scalar slot keeps its first writer so the card cannot rewrite itself', (
   assert.equal(card.slots.headword?.data, 'ephemeral');
 });
 
+test('the extract slot is owned by source priority, not by who answered first', () => {
+  const wikipedia = { text: 'Apache Iceberg is a high-performance format for huge tables.', source: 'wikipedia' };
+  const stack = { text: 'Apache Iceberg is a table format for analytics.', source: 'stackexchange' };
+
+  // The same two sources in either arrival order must produce the same card,
+  // or the paragraph shown would depend on the network rather than the term.
+  const slow = createCard('r1', 'Apache Iceberg', 'technical');
+  applyResult(slow, 'stackexchange', { slots: { extract: stack } });
+  applyResult(slow, 'wikipedia', { slots: { extract: wikipedia } });
+
+  const fast = createCard('r2', 'Apache Iceberg', 'technical');
+  applyResult(fast, 'wikipedia', { slots: { extract: wikipedia } });
+  applyResult(fast, 'stackexchange', { slots: { extract: stack } });
+
+  assert.equal(slow.slots.extract?.data?.source, 'wikipedia');
+  assert.deepEqual(fast.slots.extract?.data, slow.slots.extract?.data);
+});
+
 test('empty arrays do not mark a slot as filled', () => {
   const card = createCard('r1', 'ephemeral', 'word');
   applyResult(card, 'a', { slots: { senses: [] } });

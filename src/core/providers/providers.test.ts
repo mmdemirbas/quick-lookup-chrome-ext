@@ -6,6 +6,7 @@ import { wiktionaryProvider } from './wiktionary.ts';
 import { datamuseProvider } from './datamuse.ts';
 import { biasTerms, chooseCandidate, wikipediaProvider } from './wikipedia.ts';
 import { linksFor } from './links.ts';
+import { isDefinition, stackExchangeProvider, tagCandidates } from './stackexchange.ts';
 
 /** Serves canned payloads by URL substring, and records what was requested. */
 function stubHttp(routes: Array<[string, unknown]>): HttpClient & { calls: string[] } {
@@ -296,6 +297,76 @@ test('wikipedia returns nothing rather than throwing when everything fails', asy
     },
   };
   assert.equal(await wikipediaProvider.run(request, context(http)), null);
+});
+
+/**
+ * Excerpts as the API actually returned them, including the HTML entity and
+ * the moderation notice that motivated the guidance filter.
+ */
+const SE_ICEBERG =
+  'Apache Iceberg is a high-performance table format to enable analytics purposes. It allows engines to safely work with the same tables, at the same time.';
+const SE_KUBERNETES =
+  'KUBERNETES QUESTIONS MUST BE SPECIFICALLY RELATED TO SOFTWARE DEVELOPMENT. Configuration, deployment, and administration are off-topic here. If it&#39;s about programming issues within a pod, only use this tag if the environment is relevant.';
+
+test('tag candidates cover the spellings a term might have, best first', () => {
+  assert.deepEqual(tagCandidates('Apache Iceberg'), ['apache-iceberg', 'apacheiceberg']);
+  // A single word has only one spelling; asking twice would waste the quota.
+  assert.deepEqual(tagCandidates('Kubernetes'), ['kubernetes']);
+  assert.deepEqual(tagCandidates('Node.js'), ['node.js']);
+  assert.deepEqual(tagCandidates(''), []);
+  // Anything a tag cannot contain, or that is too long to be one, is dropped
+  // rather than sent and rejected.
+  assert.deepEqual(tagCandidates('a selected sentence is never a tag, however technical'), []);
+  assert.deepEqual(tagCandidates('naïve'), []);
+});
+
+test('a tag wiki that only explains what may be asked is not a definition', () => {
+  assert.ok(isDefinition(SE_ICEBERG));
+  assert.ok(!isDefinition(SE_KUBERNETES));
+  assert.ok(!isDefinition('Use it.'), 'too short to be a definition');
+});
+
+test('stack exchange prefers the hyphenated tag and fills gloss, extract and a link', async () => {
+  const http = stubHttp([
+    [
+      'api.stackexchange.com',
+      { items: [{ tag_name: 'apacheiceberg', excerpt: 'A wrong one.' }, { tag_name: 'apache-iceberg', excerpt: SE_ICEBERG }] },
+    ],
+  ]);
+
+  const result = await stackExchangeProvider.run(
+    { ...request, text: 'Apache Iceberg' },
+    context(http),
+  );
+  assert.ok(result);
+  // Both spellings travel in one request rather than costing two.
+  assert.equal(http.calls.length, 1);
+  assert.match(http.calls[0] ?? '', /tags\/apache-iceberg;apacheiceberg\/wikis/);
+
+  assert.equal(
+    result.slots.gloss,
+    'Apache Iceberg is a high-performance table format to enable analytics purposes.',
+  );
+  assert.match(result.slots.extract?.text ?? '', /same tables, at the same time\./);
+  assert.equal(result.slots.links?.[0]?.url, 'https://stackoverflow.com/questions/tagged/apache-iceberg');
+});
+
+test('stack exchange drops a moderation notice instead of showing it as a definition', async () => {
+  const http = stubHttp([
+    ['api.stackexchange.com', { items: [{ tag_name: 'kubernetes', excerpt: SE_KUBERNETES }] }],
+  ]);
+  assert.equal(
+    await stackExchangeProvider.run({ ...request, text: 'Kubernetes' }, context(http)),
+    null,
+  );
+});
+
+test('stack exchange returns nothing when no candidate spelling is a tag', async () => {
+  const http = stubHttp([['api.stackexchange.com', { items: [] }]]);
+  assert.equal(
+    await stackExchangeProvider.run({ ...request, text: 'planner' }, context(http)),
+    null,
+  );
 });
 
 test('quick links differ by intent and are all absolute https URLs', () => {

@@ -16,6 +16,7 @@ import { freeDictionaryProvider } from '../src/core/providers/free-dictionary.ts
 import { wiktionaryProvider } from '../src/core/providers/wiktionary.ts';
 import { datamuseProvider } from '../src/core/providers/datamuse.ts';
 import { wikipediaProvider } from '../src/core/providers/wikipedia.ts';
+import { stackExchangeProvider } from '../src/core/providers/stackexchange.ts';
 import type { Card, HttpClient, PageContext } from '../src/core/types.ts';
 
 const UA = 'QuickLookup/0.2.0 (https://github.com/mmdemirbas/quick-lookup-chrome-ext)';
@@ -31,7 +32,13 @@ const http: HttpClient = {
   },
 };
 
-const providers = [wikipediaProvider, freeDictionaryProvider, wiktionaryProvider, datamuseProvider];
+const providers = [
+  wikipediaProvider,
+  stackExchangeProvider,
+  freeDictionaryProvider,
+  wiktionaryProvider,
+  datamuseProvider,
+];
 
 type Case = {
   text: string;
@@ -81,6 +88,32 @@ const CASES: Case[] = [
       /iceberg/i.test(card.slots.entity?.data?.title ?? '')
         ? undefined
         : `page context did not steer the article (got "${card.slots.entity?.data?.title ?? 'nothing'}")`,
+  },
+  {
+    // The technical path end to end: a term with a Stack Overflow tag wiki
+    // should come back defined by practitioners, not just described.
+    text: 'Apache Iceberg',
+    page: {
+      host: 'iceberg.apache.org',
+      title: 'Apache Iceberg',
+      topicTerms: ['table', 'format', 'analytics', 'metadata', 'snapshot'],
+    },
+    expect: (card) =>
+      card.sources.includes('stackexchange')
+        ? undefined
+        : 'expected the Stack Overflow tag wiki to define a tagged technical term',
+  },
+  {
+    // A live guard on the guidance filter. The `kubernetes` tag wiki is
+    // entirely about what may be asked under the tag, so the correct
+    // outcome is that it contributes nothing rather than a moderation
+    // notice presented as a definition.
+    text: 'Kubernetes',
+    page: { host: 'kubernetes.io', title: 'Concepts', inCode: true },
+    expect: (card) =>
+      /off-topic|questions must/i.test(card.slots.gloss?.data ?? '')
+        ? 'a tag wiki moderation notice reached the card as a definition'
+        : undefined,
   },
 ];
 

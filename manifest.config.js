@@ -15,6 +15,7 @@ export const DATA_HOSTS = [
   'https://api.datamuse.com/*', // synonyms, related words, collocations
   'https://www.wikidata.org/*', // structured facts for entities
   'https://upload.wikimedia.org/*', // images referenced by the two above
+  'https://api.stackexchange.com/*', // tag wikis: definitions of programming terms
 ];
 
 const BASE = {
