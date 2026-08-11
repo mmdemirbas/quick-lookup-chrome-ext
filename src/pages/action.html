@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Quick Lookup</title>
+    <style>
+      :root {
+        --bg: #ffffff; --surface: #f6f6f9; --text: #17171c;
+        --soft: #5c5c6b; --faint: #8b8b99; --border: #e2e2ea; --accent: #4f46e5;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16161c; --surface: #1f1f28; --text: #ececf2;
+          --soft: #a9a9ba; --faint: #7d7d8f; --border: #2e2e3a; --accent: #a5a0ff;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        width: 280px; margin: 0; padding: 14px;
+        background: var(--bg); color: var(--text);
+        font: 400 13.5px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      h1 { font-size: 15px; margin: 0 0 2px; }
+      p { margin: 0 0 12px; color: var(--soft); font-size: 12.5px; }
+      .status {
+        background: var(--surface); border: 1px solid var(--border);
+        border-radius: 9px; padding: 9px 11px; font-size: 12.5px; color: var(--soft);
+        margin-bottom: 12px;
+      }
+      .status b { color: var(--text); font-weight: 600; }
+      button {
+        width: 100%; background: var(--accent); color: #fff; border: 0;
+        border-radius: 8px; padding: 9px 12px; font: inherit; font-weight: 600; cursor: pointer;
+      }
+      .site { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+      .site label { flex: 1; font-size: 12.5px; color: var(--soft); }
+      select {
+        background: var(--bg); color: var(--text); border: 1px solid var(--border);
+        border-radius: 7px; padding: 5px 7px; font: inherit; font-size: 12.5px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Quick Lookup</h1>
+    <p>Select text on a page to look it up.</p>
+    <div class="status" id="status">Checking…</div>
+    <div class="site">
+      <label for="siteMode" id="siteLabel">This site</label>
+      <select id="siteMode">
+        <option value="auto">Open the card</option>
+        <option value="handle">Show a handle</option>
+        <option value="modifier">Only with modifier</option>
+        <option value="off">Do nothing</option>
+      </select>
+    </div>
+    <button id="settings" type="button">Open settings</button>
+    <script src="action.js"></script>
+  </body>
+</html>

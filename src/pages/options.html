@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quick Lookup — settings</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --surface: #f6f6f9;
+        --text: #17171c;
+        --soft: #5c5c6b;
+        --faint: #8b8b99;
+        --border: #e2e2ea;
+        --accent: #4f46e5;
+        --warn: #b45309;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16161c;
+          --surface: #1f1f28;
+          --text: #ececf2;
+          --soft: #a9a9ba;
+          --faint: #7d7d8f;
+          --border: #2e2e3a;
+          --accent: #a5a0ff;
+          --warn: #f0b25e;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 32px 20px 64px;
+        background: var(--bg);
+        color: var(--text);
+        font: 400 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      main { max-width: 640px; margin: 0 auto; }
+      h1 { font-size: 22px; margin: 0 0 4px; }
+      .lede { color: var(--soft); margin: 0 0 28px; }
+      fieldset {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 4px 18px 18px;
+        margin: 0 0 18px;
+        background: var(--surface);
+      }
+      legend { padding: 0 8px; font-weight: 600; font-size: 13px; }
+      .row {
+        display: flex; align-items: center; gap: 16px;
+        padding: 11px 0; border-top: 1px solid var(--border);
+      }
+      .row:first-of-type { border-top: 0; }
+      .row label { flex: 1; }
+      .row .hint { display: block; color: var(--faint); font-size: 12.5px; }
+      select, input[type="number"] {
+        background: var(--bg); color: var(--text);
+        border: 1px solid var(--border); border-radius: 8px;
+        padding: 6px 9px; font: inherit; min-width: 130px;
+      }
+      input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent); }
+      button {
+        background: var(--accent); color: #fff; border: 0;
+        border-radius: 8px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer;
+      }
+      button.secondary { background: transparent; color: var(--soft); border: 1px solid var(--border); }
+      .actions { display: flex; gap: 10px; align-items: center; }
+      .saved { color: var(--accent); font-size: 13px; opacity: 0; transition: opacity .2s; }
+      .saved.show { opacity: 1; }
+      #status { font-size: 13px; color: var(--soft); }
+      #status .headline { color: var(--text); font-weight: 600; }
+      #status ol { margin: 8px 0 0; padding-left: 20px; }
+      #status code {
+        background: var(--bg); border: 1px solid var(--border);
+        border-radius: 4px; padding: 1px 5px; font-size: 12px;
+      }
+      #sites { list-style: none; margin: 0; padding: 0; }
+      #sites li {
+        display: flex; align-items: center; gap: 12px;
+        padding: 9px 0; border-top: 1px solid var(--border);
+      }
+      #sites li:first-child { border-top: 0; }
+      #sites .host { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+      .empty { color: var(--faint); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Quick Lookup</h1>
+      <p class="lede">Select text on any page to see what it means.</p>
+
+      <fieldset>
+        <legend>Triggering</legend>
+        <div class="row">
+          <label for="mode">
+            When you select text
+            <span class="hint">Handle-only shows a small button instead of opening the card.</span>
+          </label>
+          <select id="mode">
+            <option value="auto">Open the card</option>
+            <option value="handle">Show a handle</option>
+            <option value="modifier">Only with the modifier held</option>
+            <option value="off">Do nothing</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="modifier">Modifier key</label>
+          <select id="modifier">
+            <option value="alt">Alt / Option</option>
+            <option value="ctrl">Control</option>
+            <option value="meta">Command / Windows</option>
+            <option value="shift">Shift</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="dwell">
+            Wait before opening
+            <span class="hint">Milliseconds after the selection settles. Copying cancels it.</span>
+          </label>
+          <input id="dwell" type="number" min="0" max="2000" step="50" />
+        </div>
+        <div class="row">
+          <label for="maxWords">
+            Longest selection that opens the card
+            <span class="hint">Longer selections show the handle instead.</span>
+          </label>
+          <input id="maxWords" type="number" min="1" max="60" />
+        </div>
+        <div class="row">
+          <label for="inEditable">
+            Work inside text fields
+            <span class="hint">Off by default so it never interrupts writing.</span>
+          </label>
+          <input id="inEditable" type="checkbox" />
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Answers</legend>
+        <div class="row">
+          <label for="showGloss">
+            Show a translation of the main meaning
+            <span class="hint">Uses the browser's on-device translator. Nothing is sent anywhere.</span>
+          </label>
+          <input id="showGloss" type="checkbox" />
+        </div>
+        <div class="row">
+          <label for="glossLanguage">Translate into</label>
+          <select id="glossLanguage">
+            <option value="tr">Turkish</option>
+            <option value="de">German</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="ru">Russian</option>
+            <option value="ja">Japanese</option>
+            <option value="zh">Chinese</option>
+          </select>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>On-device model</legend>
+        <div id="status">Checking…</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Per-site rules</legend>
+        <ul id="sites"><li class="empty">No site rules yet.</li></ul>
+      </fieldset>
+
+      <div class="actions">
+        <button id="save" type="button">Save</button>
+        <button id="reset" class="secondary" type="button">Reset to defaults</button>
+        <span id="saved" class="saved">Saved</span>
+      </div>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
