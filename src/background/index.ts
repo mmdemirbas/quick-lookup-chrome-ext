@@ -18,6 +18,7 @@ import { wiktionaryProvider } from '../core/providers/wiktionary.ts';
 import { datamuseProvider } from '../core/providers/datamuse.ts';
 import { wikipediaProvider } from '../core/providers/wikipedia.ts';
 import { stackExchangeProvider } from '../core/providers/stackexchange.ts';
+import { registryProvider } from '../core/providers/registry.ts';
 import { ext } from '../platform/browser.ts';
 import { createHttpClient } from '../platform/http.ts';
 import { detectCapabilities, translate, uiLanguage } from '../platform/ai.ts';
@@ -29,6 +30,7 @@ const http = createHttpClient(VERSION);
 const PROVIDERS: Provider[] = [
   wikipediaProvider,
   stackExchangeProvider,
+  registryProvider,
   freeDictionaryProvider,
   wiktionaryProvider,
   datamuseProvider,

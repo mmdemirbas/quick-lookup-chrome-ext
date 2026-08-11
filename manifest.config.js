@@ -16,6 +16,9 @@ export const DATA_HOSTS = [
   'https://www.wikidata.org/*', // structured facts for entities
   'https://upload.wikimedia.org/*', // images referenced by the two above
   'https://api.stackexchange.com/*', // tag wikis: definitions of programming terms
+  'https://registry.npmjs.org/*', // package facts, asked only on JavaScript pages
+  'https://pypi.org/*', // package facts, asked only on Python pages
+  'https://crates.io/*', // package facts, asked only on Rust pages
 ];
 
 const BASE = {

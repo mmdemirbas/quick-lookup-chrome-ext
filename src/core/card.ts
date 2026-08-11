@@ -42,7 +42,7 @@ const LAYOUT: Record<Intent, SlotId[]> = {
   word: ['headword', 'pronunciation', 'gloss', 'senses', 'related', 'translation', 'links'],
   phrase: ['gloss', 'senses', 'extract', 'translation', 'links'],
   entity: ['entity', 'facts', 'extract', 'translation', 'links'],
-  technical: ['gloss', 'extract', 'entity', 'senses', 'links'],
+  technical: ['gloss', 'extract', 'facts', 'entity', 'senses', 'links'],
   citation: ['facts', 'extract', 'links'],
   quantity: ['gloss', 'facts', 'links'],
   foreign: ['translation', 'headword', 'senses', 'links'],
@@ -188,6 +188,14 @@ export function applyResult(card: Card, providerId: string, result: ProviderResu
   return card;
 }
 
+/** Ignores case, punctuation and the ellipsis left by truncation. */
+function sameSentence(a: string, b: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const [x, y] = [norm(a), norm(b)];
+  if (x.length < 20 || y.length < 20) return false;
+  return x.startsWith(y) || y.startsWith(x);
+}
+
 /** Marks every still-pending slot as empty. Called when all providers settle. */
 export function finalise(card: Card, context: string[] = []): Card {
   const senses = card.slots.senses?.data;
@@ -202,6 +210,13 @@ export function finalise(card: Card, context: string[] = []): Card {
       if (lead) card.slots.gloss = { id: 'gloss', state: 'filled', data: lead.definition };
     }
   }
+  // A one-line source and a paragraph source can carry the same sentence —
+  // an npm description and a tag wiki opening are often word for word
+  // identical. Printed as both the gloss and the summary it reads as a bug.
+  const gloss = card.slots.gloss?.data;
+  const extract = card.slots.extract?.data;
+  if (gloss && extract && sameSentence(gloss, extract.text)) setSlot(card, 'extract', 'empty');
+
   for (const id of card.order) {
     const slot = getSlot(card, id);
     if (!slot || slot.state === 'pending') setSlot(card, id, 'empty');

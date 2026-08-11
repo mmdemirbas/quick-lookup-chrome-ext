@@ -7,6 +7,7 @@ import { datamuseProvider } from './datamuse.ts';
 import { biasTerms, chooseCandidate, wikipediaProvider } from './wikipedia.ts';
 import { linksFor } from './links.ts';
 import { isDefinition, stackExchangeProvider, tagCandidates } from './stackexchange.ts';
+import { packageName, registryProvider } from './registry.ts';
 
 /** Serves canned payloads by URL substring, and records what was requested. */
 function stubHttp(routes: Array<[string, unknown]>): HttpClient & { calls: string[] } {
@@ -365,6 +366,94 @@ test('stack exchange returns nothing when no candidate spelling is a tag', async
   const http = stubHttp([['api.stackexchange.com', { items: [] }]]);
   assert.equal(
     await stackExchangeProvider.run({ ...request, text: 'planner' }, context(http)),
+    null,
+  );
+});
+
+const NPM_PAGE = {
+  host: 'blog.example.com',
+  title: 'Bundling a React app',
+  topicTerms: ['javascript', 'react', 'npm', 'bundler'],
+};
+
+test('a selection that could not be a package name is not one', () => {
+  assert.equal(packageName('react-dom'), 'react-dom');
+  assert.equal(packageName('@types/node'), '@types/node');
+  assert.equal(packageName('Lodash'), 'lodash');
+  assert.equal(packageName('two words'), undefined);
+  assert.equal(packageName('a'), undefined);
+  assert.equal(packageName('naïve'), undefined);
+});
+
+test('the registry asked follows the page, and its facts reach the card', async () => {
+  const http = stubHttp([
+    [
+      'registry.npmjs.org',
+      {
+        name: 'react-dom',
+        version: '19.2.8',
+        description: 'React package for working with the DOM.',
+        license: 'MIT',
+        homepage: 'https://react.dev/',
+      },
+    ],
+  ]);
+
+  const result = await registryProvider.run(
+    { ...request, text: 'react-dom', page: NPM_PAGE },
+    context(http),
+  );
+  assert.ok(result);
+  assert.match(http.calls[0] ?? '', /^https:\/\/registry\.npmjs\.org\/react-dom\/latest$/);
+  assert.deepEqual(result.slots.facts, [
+    { label: 'Version', value: '19.2.8', source: 'npm' },
+    { label: 'License', value: 'MIT', source: 'npm' },
+  ]);
+  assert.equal(result.slots.extract?.text, 'React package for working with the DOM.');
+  assert.deepEqual(
+    result.slots.links?.map((l) => l.url),
+    ['https://www.npmjs.com/package/react-dom', 'https://react.dev/'],
+  );
+});
+
+test('no ecosystem signal means no registry is asked at all', async () => {
+  const http = stubHttp([['registry.npmjs.org', { name: 'iceberg', version: '1.0.1' }]]);
+  const result = await registryProvider.run(
+    {
+      ...request,
+      text: 'iceberg',
+      page: { host: 'iceberg.apache.org', title: 'Apache Iceberg table specification' },
+    },
+    context(http),
+  );
+  // The npm package "iceberg" exists and is unrelated. Not asking is the
+  // only thing that keeps it off a card about the table format.
+  assert.equal(result, null);
+  assert.equal(http.calls.length, 0);
+});
+
+test('a fuzzy crates.io match is rejected rather than shown as a hit', async () => {
+  const http = stubHttp([
+    [
+      'crates.io',
+      { crates: [{ name: 'serde_json', max_stable_version: '1.0.0', description: 'JSON' }] },
+    ],
+  ]);
+  const page = { host: 'docs.rs', title: 'serde' };
+  assert.equal(
+    await registryProvider.run({ ...request, text: 'serde', page }, context(http)),
+    null,
+  );
+});
+
+test('a registry that is down leaves the slot empty rather than failing the card', async () => {
+  const http: HttpClient = {
+    async json() {
+      throw new Error('HTTP 404');
+    },
+  };
+  assert.equal(
+    await registryProvider.run({ ...request, text: 'nosuchpackage', page: NPM_PAGE }, context(http)),
     null,
   );
 });

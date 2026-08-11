@@ -52,6 +52,26 @@ test('a word on a documentation site widens to the technical path', () => {
   assert.deepEqual(plain.alsoFetch, []);
 });
 
+test('a technical page need not be a known developer host', () => {
+  // Most reading happens on blogs, which no host list will ever contain.
+  // The page's own vocabulary has to carry the decision there.
+  const d = route('react-dom', {
+    host: 'blog.example.com',
+    title: 'Rendering a React tree without the framework',
+    topicTerms: ['react', 'javascript', 'npm', 'component'],
+  });
+  assert.equal(d.intent, 'word');
+  assert.ok(d.alsoFetch.includes('technical'));
+
+  // A blog with no software vocabulary is still just a blog.
+  const cooking = route('reduction', {
+    host: 'blog.example.com',
+    title: 'Making a pan sauce',
+    topicTerms: ['sauce', 'stock', 'butter'],
+  });
+  assert.deepEqual(cooking.alsoFetch, []);
+});
+
 test('non-latin script in a latin UI routes to translation', () => {
   assert.equal(route('儚い').intent, 'foreign');
   assert.equal(route('эфемерный').intent, 'foreign');

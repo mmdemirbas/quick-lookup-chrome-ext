@@ -6,6 +6,7 @@
  * the signals can be tested and displayed without running the router.
  */
 import type { PageContext } from '../types.ts';
+import { detectEcosystems, type Ecosystem } from '../ecosystem.ts';
 
 export type Script = 'latin' | 'cyrillic' | 'greek' | 'cjk' | 'arabic' | 'hebrew' | 'other';
 
@@ -35,6 +36,12 @@ export type Signals = {
   quantity: { value: number; unit: string } | null;
   inCode: boolean;
   devHost: boolean;
+  /**
+   * Software ecosystems the page shows evidence of. Wider than `devHost`,
+   * which only knows a list of sites: an article about React on a personal
+   * blog is a technical page too, and that is where most reading happens.
+   */
+  ecosystems: Ecosystem[];
 };
 
 const HONORIFICS =
@@ -145,5 +152,6 @@ export function extractSignals(text: string, page: PageContext = {}): Signals {
     quantity: parseQuantity(trimmed),
     inCode: page.inCode === true,
     devHost: DEV_HOSTS.some((h) => host === h || host.endsWith(`.${h}`)),
+    ecosystems: detectEcosystems(page),
   };
 }

@@ -159,7 +159,8 @@ Intents: `word`, `phrase`, `entity`, `technical`, `citation`,
 Signals are all local and cost under a millisecond: token count, casing,
 script, identifier style, shape patterns (year in parentheses, episode
 code, DOI, package version, hex colour, IP address), whether the
-selection sits inside a code element, and the host.
+selection sits inside a code element, the host, and which software
+ecosystems the page shows evidence of.
 
 ## 7. Page context
 
@@ -200,13 +201,40 @@ richer answer than any single source.
 | en.wiktionary.org REST | Definitions | Independent path on Wikimedia infrastructure |
 | Datamuse | Synonyms, related words, collocations | Free to 100k/day until 2027-01-01 |
 | Wikipedia REST | Entity and technical summaries | Edge cached, the fastest measured source |
-| Wikidata | Structured facts, images | Not cached upstream. Background only |
+| Stack Overflow tag wikis | Definitions of programming terms | 300/day/IP without a key. Technical intent only |
+| npm, PyPI, crates.io | Package version, licence, description | One registry per lookup, chosen by the page |
 
 Rules for every source:
 
 - Send `Api-User-Agent` with a contact address on Wikimedia requests.
 - Treat every source as optional. A failure removes a slot, never the card.
 - Never scrape HTML from a site that has no API.
+
+### 9.1 Asking the right registry
+
+Package names collide across ecosystems. `iceberg` is a real npm package
+described as "just a pretty iceberg in the console", so a lookup on a page
+about the Apache table format would otherwise produce a fact that is true
+about something nobody meant.
+
+So a registry is asked only when the page shows evidence of that ecosystem,
+from its host and from the vocabulary around the selection. A page with no
+such evidence gets no registry request at all. The signal decides which
+source to *ask*, never what to believe, so being wrong costs one request.
+
+The same signal widens intent routing: an article about React on a personal
+blog is a technical page, and no list of developer hosts will ever contain
+the blogs where most reading happens.
+
+### 9.2 Not built, and why
+
+- **Wikidata structured facts.** The only route that batches properties with
+  their labels resolved is the SPARQL endpoint, measured at 10.7 s — an
+  order of magnitude outside the budget. The REST API filters one property
+  per request, so a person card would cost six. The Wikipedia summary
+  already carries the description and dates for most entities.
+- **crates.io `/crates/{name}`.** 422 KB, because it carries every version.
+  The search route is 1 KB and the name is checked for an exact match.
 
 ## 10. Performance budget
 

@@ -84,6 +84,30 @@ test('the extract slot is owned by source priority, not by who answered first', 
   assert.deepEqual(fast.slots.extract?.data, slow.slots.extract?.data);
 });
 
+test('the same sentence is never shown as both the gloss and the summary', () => {
+  const card = createCard('r1', 'react-dom', 'technical');
+  applyResult(card, 'stackexchange', { slots: { gloss: 'React package for working with the DOM.' } });
+  applyResult(card, 'registry', {
+    slots: { extract: { text: 'React package for working with the DOM', source: 'npm' } },
+  });
+  finalise(card);
+  assert.equal(card.slots.extract?.state, 'empty');
+
+  // A summary that genuinely says more than the gloss is kept.
+  const fuller = createCard('r2', 'Kubernetes', 'technical');
+  applyResult(fuller, 'stackexchange', { slots: { gloss: 'Kubernetes is a container orchestrator.' } });
+  applyResult(fuller, 'wikipedia', {
+    slots: {
+      extract: {
+        text: 'Kubernetes, also known as K8s, is an open-source container orchestration system for automating deployment.',
+        source: 'wikipedia',
+      },
+    },
+  });
+  finalise(fuller);
+  assert.equal(fuller.slots.extract?.state, 'filled');
+});
+
 test('empty arrays do not mark a slot as filled', () => {
   const card = createCard('r1', 'ephemeral', 'word');
   applyResult(card, 'a', { slots: { senses: [] } });

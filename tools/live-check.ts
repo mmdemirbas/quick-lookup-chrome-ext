@@ -17,6 +17,7 @@ import { wiktionaryProvider } from '../src/core/providers/wiktionary.ts';
 import { datamuseProvider } from '../src/core/providers/datamuse.ts';
 import { wikipediaProvider } from '../src/core/providers/wikipedia.ts';
 import { stackExchangeProvider } from '../src/core/providers/stackexchange.ts';
+import { registryProvider } from '../src/core/providers/registry.ts';
 import type { Card, HttpClient, PageContext } from '../src/core/types.ts';
 
 const UA = 'QuickLookup/0.2.0 (https://github.com/mmdemirbas/quick-lookup-chrome-ext)';
@@ -35,6 +36,7 @@ const http: HttpClient = {
 const providers = [
   wikipediaProvider,
   stackExchangeProvider,
+  registryProvider,
   freeDictionaryProvider,
   wiktionaryProvider,
   datamuseProvider,
@@ -115,6 +117,20 @@ const CASES: Case[] = [
         ? 'a tag wiki moderation notice reached the card as a definition'
         : undefined,
   },
+  {
+    // The registry path on an ordinary blog rather than a known dev host:
+    // the page's own vocabulary is what routes this to the technical path.
+    text: 'react-dom',
+    page: {
+      host: 'blog.example.com',
+      title: 'Rendering a React tree without the framework',
+      topicTerms: ['react', 'javascript', 'npm', 'component', 'render'],
+    },
+    expect: (card) =>
+      card.slots.facts?.data?.some((f) => f.label === 'Version' && f.source === 'npm')
+        ? undefined
+        : 'expected a current version from npm for a well known package',
+  },
 ];
 
 let failures = 0;
@@ -165,6 +181,14 @@ for (const testCase of CASES) {
       `     related: ${related.slice(0, 8).map((r) => `${r.word}·${r.kind[0]}`).join('  ')}`,
     );
   }
+
+  const facts = card.slots.facts?.data ?? [];
+  if (facts.length) {
+    console.log(`     facts: ${facts.map((f) => `${f.label}=${f.value} (${f.source})`).join('  ')}`);
+  }
+
+  const extract = card.slots.extract?.data;
+  if (extract) console.log(`     extract [${extract.source}]: ${extract.text.slice(0, 92)}`);
 
   const entity = card.slots.entity?.data;
   if (entity) {

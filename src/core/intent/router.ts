@@ -101,12 +101,16 @@ export function routeIntent(s: Signals, uiLang = 'en'): Decision {
     if (s.allCaps && s.charCount <= 8) {
       return decide('technical', 0.7, 'short all-caps token reads as an acronym', ['entity']);
     }
-    if (s.devHost) {
+    if (s.devHost || s.ecosystems.length > 0) {
       return {
         intent: 'word',
         alsoFetch: ['technical'],
         confidence: 0.55,
-        reasons: ['single word, but the page is developer documentation'],
+        reasons: [
+          s.devHost
+            ? 'single word, but the page is developer documentation'
+            : `single word on a page about ${s.ecosystems[0]}`,
+        ],
         ambiguous: true,
       };
     }
@@ -117,12 +121,13 @@ export function routeIntent(s: Signals, uiLang = 'en'): Decision {
   if (s.titleCase) {
     return decide('entity', 0.8, 'title case across several tokens', ['technical']);
   }
-  if (s.devHost || s.tokenCount <= 4) {
+  const technicalPage = s.devHost || s.ecosystems.length > 0;
+  if (technicalPage || s.tokenCount <= 4) {
     return {
       intent: 'phrase',
-      alsoFetch: s.devHost ? ['technical'] : [],
+      alsoFetch: technicalPage ? ['technical'] : [],
       confidence: 0.65,
-      reasons: [s.devHost ? 'short phrase on a developer page' : 'short phrase'],
+      reasons: [technicalPage ? 'short phrase on a technical page' : 'short phrase'],
       ambiguous: false,
     };
   }
