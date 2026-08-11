@@ -1,15 +1,22 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM"],
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
     "strict": true,
-    "noEmit": true,
-    "types": ["chrome", "node"],
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": false,
     "skipLibCheck": true,
-    "jsx": "react-jsx"
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["chrome", "node"]
   },
-  "include": ["src", "scripts", "manifest.json"]
+  "include": ["src", "build.mjs", "manifest.config.js", "tools"]
 }

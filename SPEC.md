@@ -1,246 +1,249 @@
-You are generating a Chrome/Chromium Manifest V3 extension named **Quick Lookup**.
+# Quick Lookup — build specification
 
-## 0) Goals & Principles
-- Purpose: **Instant** info for selected text with minimal friction.
-- Priorities: speed > correctness > clarity > features.
-- Primary use-cases: (a) translation, (b) named entities (people/places/works) with image, (c) definitions; then links.
-- Privacy by default: no servers, no analytics, no remote code.
+Version 2. Supersedes the first specification, which is kept in git
+history. The research and reasoning behind these decisions is in
+`docs/redesign-2026-08-11.md`.
 
-## 1) UX Spec
+## 1. Goal
 
-### Triggering
-- **Default:** Auto-open popup on text selection mouseup (no keyboard shortcut).
-- Ignore selections inside editable fields (`input`, `textarea`, `contenteditable`) unless user enables “work in editors”.
-- Debounce 120–180 ms; ignore selections > 300 chars; ignore whitespace-only.
-- **Config options:**
-  - “Require modifier”: none | Alt | Ctrl | Cmd (default: none).
-  - “Open via context menu” (always on): `Quick Lookup “{text}”`.
-  - Disable per-site toggle (three-dot menu in header).
+One gesture on any selected text returns the most useful answer for that
+kind of text, in place, fast enough that no other tool is worth opening.
 
-### Popup
-- Inject near selection; reposition to stay **inside viewport** (8px margin).
-- **Draggable** via header; **Resizable** (min 320×200).
-- **Pin/Unpin**; pinned persists across navigations (until closed).
-- Tabs (horizontal): **Overview** | **Sources** | **History** | **Settings**.
-- Theme: Dark/Light/Auto via `prefers-color-scheme`; expose CSS variables.
-- Keyboard: `Esc` closes; `Tab` cycles focus; arrow keys navigate lists; ARIA roles.
+Three primary jobs:
 
-### Results Ranking (first-screen content)
-- If text language ≠ UI language → **Translation** panel first.
-- If looks like a named entity → **Entity card** (Wikipedia/Wikidata summary + image).
-- If single word → **Dictionary** first.
-- Always show **Quick Links** row (Google, MDN, etc.) for one-click deep dives.
+1. An English word — what it means here, how it is said, how it is used.
+2. A technical term — what it is in this page's context, and where the
+   real documentation is.
+3. A person or named entity — who, why known, and when.
 
-### Entity Heuristics (cheap & fast)
-- Signals: Capitalized multi-word phrase; contains known honorifics (“Dr.”, “Mr.”), year-in-parens, or media hints (“(film)”, “S01E03”).
-- Try **Wikidata/Wikipedia search** for exact/close match in user or detected language.
-- If matched and entity has image (Wikidata P18 or Wikipedia pageimage), show it.
+## 2. Principles
 
-## 2) Architecture (MV3)
+These decide arguments. When two of them conflict, the earlier one wins.
 
-### Processes & Flow
-- **Content Script:** detect selections; draw Shadow-DOM popup; handle UI; send queries.
-- **Background (service worker):** fetch provider data, map/normalize JSON, cache, rate-limit, store history.
-- **Options Page:** provider order/toggles, theme, triggers, language prefs.
-- **Action Popup (toolbar):** quick access to History/Settings when no selection.
+1. **Never annoying.** The tool may be wrong or slow. It may never be in
+   the way. Any behaviour that interrupts reading is a defect.
+2. **Evidence, not invention.** Facts come from data sources. A language
+   model may classify, rank, translate and phrase. It may never be the
+   source of a fact.
+3. **Fast first, deep on request.** A useful answer inside 400 ms. Deeper
+   work continues in the background or waits for an explicit ask.
+4. **Works with nothing.** No account, no API key, no model download, no
+   network for anything already cached. Every capability above that is an
+   improvement, never a requirement.
+5. **Local by default.** Selected text and page context stay on the
+   device unless a data source is explicitly queried for them.
 
-### Data Types (TypeScript)
+## 3. Platforms
+
+Desktop is the primary target. Mobile is welcome where it is free.
+
+| Target | Status | Notes |
+|---|---|---|
+| Brave | Primary | Chromium MV3. Built-in AI only after manual setup |
+| Chrome 138+ | First class | Built-in AI available with no setup |
+| Edge 138+ | First class | Same API names, different models |
+| Firefox | Best effort | Different extension AI API, no free-form generation |
+
+The extension is installed unpacked. Store publishing is out of scope.
+
+## 4. Architecture
+
+Four layers. Dependencies point downward only.
+
+```
+content  ──┐
+background ├──►  core  (pure, no browser APIs, no I/O)
+options  ──┘       ▲
+                   │
+                platform  (browser APIs, network, inference adapter)
+```
+
+- **core** — intent detection, provider definitions, card composition,
+  ranking, caching policy. No `chrome.*`, no `fetch`. Every dependency is
+  injected. This layer is unit tested.
+- **platform** — the browser namespace shim, the HTTP client, storage,
+  and the inference adapter. The only layer that knows which browser it
+  is running in.
+- **background** — the service worker. Owns orchestration, deadlines,
+  the cache, and history.
+- **content** — selection detection, the handle, and the card. Runs in a
+  shadow root.
+
+### 4.1 Inference adapter
+
+One interface, several implementations, chosen by capability detection.
+No code above the adapter names a browser.
+
 ```ts
-export type Query = { text: string; langUI: string; langDetected?: string };
-export type Result = {
-  providerId: string; title: string; snippet?: string; url?: string;
-  imageUrl?: string; extra?: Record<string, any>;
+type Capabilities = {
+  classify: boolean;   // pick one option from a list
+  translate: boolean;  // language pair translation
+  generate: boolean;   // free-form text
+  detect: boolean;     // language detection
 };
-export interface Provider {
-  id: string;
-  displayName: string;
-  kind: "json" | "link";
-  enabledByDefault: boolean;
-  query: (q: Query, signal: AbortSignal) => Promise<Result[]>;
-}
-````
-
-## 3) Providers
-
-### Built-in Defaults (no accounts)
-
-* **Wikipedia (JSON)**: REST summary `/{lang}.wikipedia.org/api/rest_v1/page/summary/{q}`; map to `{title, extract, page url, thumbnail}`.
-* **Wikidata (JSON)**: search + entity lookup for type + **image (P18)**. Prefer Commons file URL thumb for images.
-* **Dictionary (JSON)**: `https://api.dictionaryapi.dev/api/v2/entries/{lang}/{q}` (fallback to English).
-* **Links (templates)**: MDN, Google, DuckDuckGo, IMDB, Thesaurus, DeepL, Google Translate.
-* **Translation (optional inline)**: LibreTranslate endpoint configurable by user (URL + key). If unset, show link buttons instead.
-
-### Provider Plug-in Model (MV3-safe)
-
-* **Link providers:** `{ id, displayName, template }` with `{q}` and `{lang}` tokens.
-* **HTTP providers:** `{ endpoint, method, headers, query/body template, jsonPaths }` (declarative map of fields to `Result`); **no arbitrary JS**.
-* **Advanced (optional):** support a separate “Custom Providers Pack” extension; communicate via `runtime.connect` with a simple protocol (`query → results`). This allows user-authored JS without violating MV3 CSP.
-
-## 4) Storage Schema
-
-* `storage.sync` (≤100KB): user prefs (`theme`, `trigger`, enabled providers, order, language overrides).
-* `storage.local`: cache `{ key: hash(q+provider), value: Result[], expiresAt }`, history `{ q, when, providers[] }`, bookmarks `{ q, note?, tags? }`.
-* History cap: N=200; LRU eviction.
-
-## 5) Performance & Reliability
-
-* Parallel fetch with max 4 in-flight; per-provider **timeout 1500 ms**; show partial results fast.
-* Abort previous fetches on new selection.
-* Two-phase render: skeleton instantly; first result target: cold ≤ 800 ms (Wikipedia), warm (cache) ≤ 120 ms.
-* Rate limit per provider: 5 req / 10 s; exponential backoff on errors.
-* Offline: serve cached results; show “offline” badge.
-
-## 6) Security & Privacy
-
-* MV3 CSP; **no eval**, **no remote code**; sanitize any third-party HTML (prefer plaintext).
-* Only call whitelisted hosts from `host_permissions`.
-* No analytics by default. Optional diagnostics toggle (counts only, no text content).
-* Never store selected text remotely; all data remains local.
-
-## 7) Accessibility
-
-* WCAG AA contrast; focus management; labels; roles; escape routes.
-* Announce dynamic content with ARIA live regions.
-
-## 8) Settings (with Defaults)
-
-```json
-{
-  "theme": "auto",
-  "trigger": { "mode": "selection", "requireModifier": "none" },
-  "limits": { "maxSelectionChars": 300, "concurrency": 4, "timeoutMs": 1500, "cacheTtlHrs": 24 },
-  "providersOrder": ["translate", "wikipedia", "wikidata", "dictionary", "links"],
-  "providers": {
-    "translate": { "inline": false, "libreTranslateUrl": "", "apiKey": "" },
-    "wikipedia": { "enabled": true },
-    "wikidata": { "enabled": true },
-    "dictionary": { "enabled": true, "langFallback": "en" },
-    "links": {
-      "enabled": true,
-      "items": [
-        { "id": "google", "displayName": "Google", "template": "https://www.google.com/search?q={q}" },
-        { "id": "mdn", "displayName": "MDN", "template": "https://developer.mozilla.org/search?q={q}" },
-        { "id": "imdb", "displayName": "IMDB", "template": "https://www.imdb.com/find/?q={q}" },
-        { "id": "deepl", "displayName": "DeepL", "template": "https://www.deepl.com/translate#auto/{lang}/{q}" },
-        { "id": "gtranslate", "displayName": "Google Translate", "template": "https://translate.google.com/?sl=auto&tl={lang}&text={q}&op=translate" }
-      ]
-    }
-  }
-}
 ```
 
-## 9) Entity & Ranking Logic (pseudocode)
+| Implementation | Detected by | Provides |
+|---|---|---|
+| `webml` | `LanguageModel` / `Translator` / `LanguageDetector` globals | All four. Chrome, Edge, and Brave once enabled |
+| `firefox` | `browser.trial.ml` | Classification and summarisation only |
+| `none` | nothing detected | Nothing. The default assumption |
 
-```ts
-function inferLang(text): string { /* cheap script/letters + navigator.language */ }
-function isSingleWord(text): boolean { /* no spaces after trim and length <= 30 */ }
-function looksNamedEntity(text): boolean {
-  return /[A-Z][a-z]+(?: [A-Z][a-z]+)+/.test(text) || /(?:\(\d{4}\))|S\d+E\d+/.test(text);
-}
+The adapter never throws on absence. Callers ask for a capability and
+take the answer.
 
-async function plan(query: Query) {
-  const tasks: string[] = [];
-  const differentLang = query.langDetected && query.langDetected !== query.langUI;
+**The no-model path is the default path.** Chrome and Edge both refuse to
+download the model on a metered connection, so the extension must be
+complete without it.
 
-  if (differentLang) tasks.push("translate");
-  if (looksNamedEntity(query.text)) tasks.push("wikidata", "wikipedia");
-  if (isSingleWord(query.text)) tasks.push("dictionary");
-  tasks.push("links");
-  return dedupePreservingOrder(tasks);
-}
+## 5. Triggering
+
+### 5.1 Selection
+
+On by default. The card opens after the selection settles.
+
+Ten guards keep it quiet. All are default behaviour, not settings:
+
+1. Open 250 ms after the selection settles, not on `mouseup`.
+2. A copy shortcut within the dwell window cancels the card.
+3. Nothing renders while the mouse button is down.
+4. Beyond 12 words, show the handle only.
+5. Editable fields are excluded unless enabled.
+6. The card never covers the selection.
+7. The card never takes keyboard focus and never scrolls the page.
+8. Selections inside the card itself are ignored.
+9. Three dismissals without interaction on one site in one session offer
+   handle-only mode for that site.
+10. The card header carries a one-click site kill switch.
+
+### 5.2 Modifier and hover
+
+Hold the modifier and point at a word. No selection needed. The span
+starts at the token under the cursor and grows to the longest known entry
+that starts there.
+
+While the modifier is held:
+
+- `→` extends the span one word right, `←` shrinks it.
+- `Shift`+`←` extends the span one word left.
+
+The card re-queries as the span changes.
+
+### 5.3 Other paths
+
+- A keyboard shortcut looks up the current selection.
+- The context menu offers a lookup on any selection.
+
+## 6. Intent routing
+
+Cheap deterministic signals first. The model is consulted only when the
+signals are ambiguous, and only to choose from a fixed list.
+
+Intents: `word`, `phrase`, `entity`, `technical`, `citation`,
+`quantity`, `foreign`, `unknown`.
+
+Signals are all local and cost under a millisecond: token count, casing,
+script, identifier style, shape patterns (year in parentheses, episode
+code, DOI, package version, hex colour, IP address), whether the
+selection sits inside a code element, and the host.
+
+## 7. Page context
+
+Each page is profiled once and cached for the tab. The profile carries
+the title, the first heading, the meta description, the site name, the
+host, and the most distinctive terms on the page.
+
+Local context carries the enclosing sentence, the nearest heading above
+the selection, and whether the selection is inside code.
+
+Context is used three ways, in increasing order of risk:
+
+1. Bias the search query sent to a source.
+2. Rank returned senses by overlap with the topic and the sentence.
+3. Ask the model to choose one of the senses a source returned.
+
+## 8. Answer composition
+
+Each intent maps to a layout of named slots. Providers write into slots.
+The card renders slots as they arrive and reserves their height, so
+nothing below moves.
+
+Slots: `headword`, `pronunciation`, `gloss`, `senses`, `related`,
+`translation`, `entity`, `facts`, `extract`, `links`, `sources`.
+
+Several providers may write the same slot. Merge rules are per slot:
+first non-empty for scalars, deduplicated union for lists, with the
+source recorded for every item.
+
+## 9. Sources
+
+More than one source per job. Backups are expected, and mixing produces a
+richer answer than any single source.
+
+| Source | Used for | Notes |
+|---|---|---|
+| freedictionaryapi.com | Definitions, pronunciation | Wiktionary data, 1000 req/hour/IP, no key |
+| en.wiktionary.org REST | Definitions | Independent path on Wikimedia infrastructure |
+| Datamuse | Synonyms, related words, collocations | Free to 100k/day until 2027-01-01 |
+| Wikipedia REST | Entity and technical summaries | Edge cached, the fastest measured source |
+| Wikidata | Structured facts, images | Not cached upstream. Background only |
+
+Rules for every source:
+
+- Send `Api-User-Agent` with a contact address on Wikimedia requests.
+- Treat every source as optional. A failure removes a slot, never the card.
+- Never scrape HTML from a site that has no API.
+
+## 10. Performance budget
+
+| Stage | Budget |
+|---|---|
+| Handle visible | No work at all |
+| Card frame and skeleton | 16 ms |
+| Full answer from warm cache | 120 ms |
+| First evidence slot | 400 ms |
+| All slots settled or marked absent | 1200 ms |
+| Deep work on request | No budget, runs in the background |
+
+A new selection aborts every request in flight.
+
+Cache has two layers: an in-memory map in the service worker, and
+`storage.local` with a time to live behind it.
+
+## 11. Storage
+
+- `storage.sync` — preferences only. Never credentials.
+- `storage.local` — cache, history, per-site settings, and any key the
+  user chooses to add.
+
+## 12. Security and privacy
+
+- No remote code. No `eval`. No third-party HTML injected into the page.
+- Every value from a source is inserted as text, never as markup.
+- Only hosts listed in the manifest are contacted.
+- No analytics.
+
+## 13. Quality gates
+
+All four must pass before any change is considered done:
+
+```
+npm run typecheck    # tsc --noEmit, no errors
+npm test             # unit tests over core, all passing
+npm run build        # produces a loadable unpacked extension
+npm run check        # all of the above
 ```
 
-## 10) Manifest (MV3)
+Core logic is tested without a browser. Anything that needs a browser API
+lives in `platform` behind an interface that tests can substitute.
 
-* `permissions`: `storage`, `activeTab`, `scripting`, `contextMenus`
-* `host_permissions`: whitelist Wikipedia, Wikidata, dictionary API, and optionally LibreTranslate.
-* `background.service_worker`: `background.js`
-* `action`: default popup (History/Settings)
-* `web_accessible_resources`: content UI bundle + CSS.
+## 14. Roadmap
 
-Provide a **complete `manifest.json`** with the above.
-
-## 11) File Structure
-
-```
-/src
-  /background/ (service worker: providers, cache, history)
-  /content/    (selection detection, popup mount, messaging)
-  /ui/         (Shadow-DOM components, tabs)
-  /options/    (settings UI)
-  /providers/  (wikipedia.ts, wikidata.ts, dictionary.ts, links.ts)
-  /types/
-manifest.json
-```
-
-## 12) Implementation Requirements
-
-### Content script
-
-* Selection listener; debounce; message `{ type: "QUERY", query }` to background.
-* Render popup in Shadow DOM. Header with drag handle, pin toggle, menu (per-site disable).
-* Keep within viewport on window resize/zoom; store pinned position in `storage.local`.
-
-### Background
-
-* Provider registry implementing the **Provider** interface.
-* Fetch layer with timeout, abort, rate-limit; JSON mapping for HTTP providers.
-* Cache (LRU by key); history append; serve from cache when valid.
-* Query planner (see §9); run tasks in order with concurrency cap; return partials as they arrive.
-
-### Options page
-
-* Toggle providers, reorder via drag & drop, set theme and triggers.
-* Configure LibreTranslate endpoint/key; validate with a test call.
-
-### Default Providers (implement now)
-
-* `wikipedia.ts`: locale-aware summary + page URL + thumbnail.
-* `wikidata.ts`: search → entity → P18 image (thumbnail from Commons) + entity type.
-* `dictionary.ts`: definition list.
-* `links.ts`: templates → single `Result` per link.
-
-### UI
-
-* Overview tab renders: Translation (if available) → Entity card → Definition → Links.
-* Sources tab shows per-provider panels (collapsible).
-* History tab: last 200 items, search filter, “star” bookmarks.
-* Settings tab: all prefs; import/export JSON.
-
-### Theming
-
-* Use CSS variables; Dark/Light/Auto; respect `prefers-color-scheme`.
-
-## 13) Testing
-
-* Unit: providers (happy/timeout/error), cache, planner.
-* E2E (Puppeteer): selection → popup placement; pin/resizer; offline mode (serve cache).
-* Accessibility: axe-core check; keyboard-only flow.
-* Performance budgets: cold first result ≤ 800 ms, warm ≤ 120 ms; log timings in dev mode.
-
-## 14) Delivery
-
-* Build with TypeScript + Vite (ES modules); produce MV3-ready assets.
-* Output a zip ready for Chrome “Load unpacked”.
-
-## 15) Future (leave hooks, do not implement now)
-
-* Smart entity classification (person/place/work/org) to tune provider order.
-* Local embeddings for offline synonym/related (opt-in).
-* Companion “Custom Providers Pack” extension protocol.
-
-## 16) What to Generate Now
-
-* All source files, typed in TS.
-* `manifest.json`.
-* Minimal icons (placeholder).
-* README with setup, build, permissions rationale, privacy statement.
-* A small fixtures folder with mocked JSON for tests.
-
-**Important guardrails**
-
-* No scraping of Google/IMDB HTML; use APIs or link templates.
-* No remote code or eval; keep CSP strict.
-* Keep bundle small; zero heavy UI frameworks.
-
-Produce the full project files inline, with code blocks labeled by path and content.
+| Phase | Content |
+|---|---|
+| 1 | Foundation, trigger, card shell, English word lookup |
+| 2 | Intent router, entity and technical paths, page context |
+| 3 | Inference adapter — classification, translation, phrasing |
+| 4 | History, bookmarks, export, side panel for depth |
+| 5 | Writing tools — summarise, rewrite, proofread |
+| 6 | PDF support, accessibility pass, Firefox target |

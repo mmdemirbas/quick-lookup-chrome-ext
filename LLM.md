@@ -1,3 +1,0 @@
-
-- I also want to see quick AI summary just like search engines show at the top of the search results nowadays. Maybe we can smartly decide prioritization of the other knowledge based on the AI's response. For example, we give AI a brief contextual information (containing headers, URL, a few hundred chars before and after the selected text in the same semantic container etc.) beside the selected text itself and ask it to provide us a json with a useful brief summary, a type hint (movie, actor, person, animal, place etc.) so we can search other resources accordingly (IMBD for movies and actors etc.). How does it sound? Which free LLM we can use for this purpose? (it must be quick and generously free (like thousands of requests per month))
-

@@ -1,12 +1,15 @@
 {
   "name": "quick-lookup",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "description": "Instant, evidence-backed lookup for selected text.",
   "scripts": {
-    "dev": "vite --mode development",
-    "build": "vite build && node scripts/copy-static.js",
-    "lint": "tsc --noEmit"
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'src/**/*.test.ts'",
+    "check": "npm run typecheck && npm test && npm run build"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.273",
