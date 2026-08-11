@@ -72,6 +72,26 @@ test('empty arrays do not mark a slot as filled', () => {
   assert.equal(card.slots.senses?.state, 'pending');
 });
 
+test('a usage example never outranks the source ordering', () => {
+  // The defect this guards: a dictionary's rare first-listed-last sense
+  // carrying a quotation displaced the everyday meaning of "ephemeral".
+  const senses = [
+    sense('Lasting for a short period of time.', 'a'),
+    sense('(geology) Usually dry, but filling with water briefly.', 'a', 'an ephemeral stream'),
+  ];
+  const ranked = rankSenses(senses, []);
+  assert.match(ranked[0]?.definition ?? '', /^Lasting for a short period/);
+});
+
+test('page context still outranks source ordering', () => {
+  const senses = [
+    sense('Lasting for a short period of time.', 'a'),
+    sense('(geology) Usually dry, but filling with water briefly.', 'a'),
+  ];
+  const ranked = rankSenses(senses, ['geology', 'water', 'stream', 'river']);
+  assert.match(ranked[0]?.definition ?? '', /geology/);
+});
+
 test('senses are ranked by overlap with page context', () => {
   const senses = [
     sense('A person who organises events such as weddings.', 'a'),
@@ -83,6 +103,22 @@ test('senses are ranked by overlap with page context', () => {
   // With no context the original order is preserved.
   const neutral = rankSenses(senses, []);
   assert.match(neutral[0]?.definition ?? '', /weddings/);
+});
+
+test('the gloss comes from the ranked lead, not the source order', () => {
+  // Otherwise the one-line headline contradicts the list directly beneath it.
+  const card = createCard('r1', 'manifest', 'word');
+  applyResult(card, 'a', {
+    slots: {
+      senses: [
+        sense('Evident to the senses; apparent.', 'a'),
+        sense('(computing) A file containing metadata describing other files.', 'a'),
+      ],
+    },
+  });
+  finalise(card, ['metadata', 'file', 'table', 'computing']);
+  assert.match(String(card.slots.gloss?.data), /^\(computing\)/);
+  assert.equal(card.slots.senses?.data?.[0]?.definition, card.slots.gloss?.data);
 });
 
 test('finalise fills the gloss from the lead sense and empties the rest', () => {

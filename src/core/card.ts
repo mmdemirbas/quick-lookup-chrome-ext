@@ -69,24 +69,35 @@ export function createCard(requestId: string, query: string, intent: Intent): Ca
   return card;
 }
 
+/** How much a sense can be promoted by carrying a usage example. */
+const EXAMPLE_BONUS = 0.002;
+
+/** Cost of each position of distance from the source's own ordering. */
+const POSITION_STEP = 0.02;
+
 /**
  * Orders senses so the one that fits this page comes first.
  *
- * Ranking is by overlap with the page topic and the enclosing sentence,
- * with a small bonus for having an example. Sources are interleaved rather
- * than concatenated, so a card never shows six senses from one source
- * before the first sense from another.
+ * The weights are deliberately far apart, because they are not equally
+ * trustworthy:
+ *
+ * 1. Overlap with the page topic dominates. It is the only signal that
+ *    knows anything about what the reader is reading.
+ * 2. The source's own order is next. Dictionaries list the common sense
+ *    first, and that is a much better default than anything computed here.
+ * 3. Carrying an example is the weakest signal, and must never outrank the
+ *    source's order — an obscure geology sense with a quotation attached
+ *    would otherwise displace the everyday meaning of the word.
  */
 export function rankSenses(senses: Sense[], context: string[]): Sense[] {
   const scored = senses.map((sense, index) => {
     const haystack = `${sense.definition} ${sense.example ?? ''}`;
     const relevance = overlapScore(haystack, context);
-    const hasExample = sense.example ? 0.05 : 0;
-    // Original order is a weak signal that sources already rank by frequency.
-    const positionPenalty = index * 0.001;
-    return { sense, score: relevance + hasExample - positionPenalty };
+    const example = sense.example ? EXAMPLE_BONUS : 0;
+    return { sense, index, score: relevance - index * POSITION_STEP + example };
   });
-  scored.sort((a, b) => b.score - a.score);
+  // A stable tiebreak on the original index keeps equal scores in source order.
+  scored.sort((a, b) => b.score - a.score || a.index - b.index);
   return scored.map((s) => s.sense);
 }
 
@@ -157,10 +168,13 @@ export function applyResult(card: Card, providerId: string, result: ProviderResu
 export function finalise(card: Card, context: string[] = []): Card {
   const senses = card.slots.senses?.data;
   if (senses && senses.length > 0) {
-    card.slots.senses = { id: 'senses', state: 'filled', data: rankSenses(senses, context) };
+    const ranked = rankSenses(senses, context);
+    card.slots.senses = { id: 'senses', state: 'filled', data: ranked };
     // The lead sense doubles as the one-line gloss when nothing else set one.
+    // It must come from the ranked list, or the headline contradicts the list
+    // directly beneath it.
     if (!card.slots.gloss?.data && card.order.includes('gloss')) {
-      const lead = senses[0];
+      const lead = ranked[0];
       if (lead) card.slots.gloss = { id: 'gloss', state: 'filled', data: lead.definition };
     }
   }

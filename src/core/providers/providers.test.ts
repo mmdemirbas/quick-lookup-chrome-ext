@@ -4,7 +4,7 @@ import type { HttpClient, LookupRequest, ProviderContext } from '../types.ts';
 import { freeDictionaryProvider } from './free-dictionary.ts';
 import { wiktionaryProvider } from './wiktionary.ts';
 import { datamuseProvider } from './datamuse.ts';
-import { chooseCandidate, wikipediaProvider } from './wikipedia.ts';
+import { biasTerms, chooseCandidate, wikipediaProvider } from './wikipedia.ts';
 import { linksFor } from './links.ts';
 
 /** Serves canned payloads by URL substring, and records what was requested. */
@@ -140,47 +140,162 @@ test('datamuse survives one of its two requests failing', async () => {
   assert.equal(result?.slots.related?.length, 1);
 });
 
-test('wikipedia candidate choice follows page context when it says something', () => {
-  const pages = [
-    { key: 'Wedding_planner', title: 'Wedding planner', description: 'person who organises weddings' },
-    { key: 'Query_planner', title: 'Query planner', description: 'database query execution component' },
-  ];
-  assert.equal(chooseCandidate(pages, ['database', 'query', 'table'])?.key, 'Query_planner');
-  // With no context, Wikipedia's own relevance order is respected.
-  assert.equal(chooseCandidate(pages, [])?.key, 'Wedding_planner');
-  // Context that matches nothing must not reorder anything.
-  assert.equal(chooseCandidate(pages, ['zzzz'])?.key, 'Wedding_planner');
-  assert.equal(chooseCandidate([], ['x']), undefined);
-});
+const TURING = {
+  type: 'standard',
+  title: 'Alan Turing',
+  description: 'English computer scientist (1912-1954)',
+  extract: 'Alan Mathison Turing was an English mathematician and computer scientist.',
+  thumbnail: { source: 'https://upload.wikimedia.org/turing.jpg' },
+  content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Alan_Turing' } },
+};
 
-test('wikipedia skips disambiguation pages', async () => {
-  const http = stubHttp([
-    ['search/title', { pages: [{ key: 'Mercury' }] }],
-    ['page/summary', { type: 'disambiguation', title: 'Mercury', extract: 'May refer to:' }],
-  ]);
-  assert.equal(await wikipediaProvider.run(request, context(http)), null);
-});
+test('wikipedia answers from the cached summary without touching search', async () => {
+  // Search is rate limited far more aggressively than the summary endpoint,
+  // so the common case must not reach it at all.
+  const http = stubHttp([['page/summary', TURING]]);
+  const result = await wikipediaProvider.run(
+    { ...request, text: 'Alan Turing' },
+    context(http),
+  );
 
-test('wikipedia maps a summary into both the entity and extract slots', async () => {
-  const http = stubHttp([
-    ['search/title', { pages: [{ key: 'Alan_Turing', title: 'Alan Turing' }] }],
-    [
-      'page/summary',
-      {
-        type: 'standard',
-        title: 'Alan Turing',
-        description: 'English computer scientist (1912-1954)',
-        extract: 'Alan Mathison Turing was an English mathematician and computer scientist.',
-        thumbnail: { source: 'https://upload.wikimedia.org/turing.jpg' },
-        content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Alan_Turing' } },
-      },
-    ],
-  ]);
-
-  const result = await wikipediaProvider.run(request, context(http));
   assert.equal(result?.slots.entity?.title, 'Alan Turing');
   assert.equal(result?.slots.entity?.imageUrl, 'https://upload.wikimedia.org/turing.jpg');
   assert.match(result?.slots.extract?.text ?? '', /^Alan Mathison Turing/);
+  assert.equal(http.calls.length, 1, 'exactly one request for a direct hit');
+  assert.match(http.calls[0] ?? '', /page\/summary\/Alan_Turing$/);
+});
+
+/** Action API `generator=search` shape: candidates carry their own extract. */
+const searchPayload = (pages: Array<Record<string, unknown>>) => ({
+  query: { pages: Object.fromEntries(pages.map((p, i) => [String(i), { index: i, ...p }])) },
+});
+
+test('a missing article falls back to one search that carries the extract', async () => {
+  const http: HttpClient & { calls: string[] } = {
+    calls: [],
+    async json(url: string) {
+      this.calls.push(url);
+      if (url.includes('page/summary')) throw new Error('HTTP 404');
+      return searchPayload([
+        {
+          title: 'Alan Turing',
+          description: 'English computer scientist',
+          extract: 'Alan Mathison Turing was an English mathematician.',
+          thumbnail: { source: 'https://upload.wikimedia.org/turing.jpg' },
+        },
+      ]) as never;
+    },
+  };
+
+  const result = await wikipediaProvider.run({ ...request, text: 'the turing man' }, context(http));
+  assert.equal(result?.slots.entity?.title, 'Alan Turing');
+  assert.equal(result?.slots.entity?.imageUrl, 'https://upload.wikimedia.org/turing.jpg');
+  // No follow-up summary request: the search already returned the extract.
+  assert.equal(http.calls.length, 2, 'direct summary, then one search');
+});
+
+test('page topic biases the search query, and over-constraining retries plain', async () => {
+  const queries: string[] = [];
+  const http: HttpClient = {
+    async json(url: string) {
+      if (url.includes('page/summary')) throw new Error('HTTP 404');
+      const term = decodeURIComponent(/gsrsearch=([^&]*)/.exec(url)?.[1] ?? '');
+      queries.push(term);
+      // The biased query is too specific and finds nothing, as measured
+      // against the real API with four or more terms.
+      if (term.includes('iceberg')) return searchPayload([]) as never;
+      return searchPayload([{ title: 'Manifest', extract: 'A manifest is a document.' }]) as never;
+    },
+  };
+
+  await wikipediaProvider.run(
+    {
+      ...request,
+      text: 'manifest',
+      page: { topicTerms: ['iceberg', 'table', 'metadata', 'query', 'partition'] },
+    },
+    context(http),
+  );
+
+  assert.equal(queries.length, 2, 'biased first, then plain');
+  assert.equal(queries[0], 'manifest iceberg table metadata', 'at most three bias terms');
+  assert.equal(queries[1], 'manifest');
+});
+
+test('bias terms never repeat words from the selection itself', () => {
+  const terms = biasTerms({ topicTerms: ['planner', 'database', 'query', 'table'] }, 'planner');
+  assert.ok(!terms.includes('planner'));
+  assert.deepEqual(terms, ['database', 'query', 'table']);
+});
+
+test('candidates are chosen by context, falling back to search rank', () => {
+  const candidates = [
+    { title: 'Wedding planner', description: 'organises weddings', index: 0 },
+    { title: 'Query optimization', description: 'database query execution', index: 1 },
+  ];
+  assert.equal(chooseCandidate(candidates, ['database', 'query'])?.candidate.title, 'Query optimization');
+  assert.equal(chooseCandidate(candidates, [])?.candidate.title, 'Wedding planner');
+  assert.equal(chooseCandidate([], ['x']), undefined);
+
+  // A miss reports a zero score, which is how the caller detects that a
+  // topic-biased search returned something unrelated to the page.
+  const miss = chooseCandidate(candidates, ['zzzz']);
+  assert.equal(miss?.candidate.title, 'Wedding planner');
+  assert.equal(miss?.score, 0);
+});
+
+test('a biased search that returns unrelated results is retried without bias', async () => {
+  // Measured behaviour: searching "planner iceberg" returns a Toyota model.
+  // The bias misfires by being confidently wrong, not by being empty.
+  const queries: string[] = [];
+  const http: HttpClient = {
+    async json(url: string) {
+      if (url.includes('page/summary')) throw new Error('HTTP 404');
+      const term = decodeURIComponent(/gsrsearch=([^&]*)/.exec(url)?.[1] ?? '');
+      queries.push(term);
+      if (term.includes('iceberg')) {
+        return searchPayload([
+          { title: 'Toyota FJ Cruiser', description: 'sport utility vehicle', extract: 'A mid-size SUV.' },
+        ]) as never;
+      }
+      return searchPayload([
+        { title: 'Query optimization', description: 'database query planning', extract: 'Choosing an execution plan for a database query.' },
+      ]) as never;
+    },
+  };
+
+  const result = await wikipediaProvider.run(
+    {
+      ...request,
+      text: 'planner',
+      page: { topicTerms: ['iceberg', 'table', 'query', 'database', 'execution'] },
+    },
+    context(http),
+  );
+
+  assert.equal(queries.length, 2, 'the irrelevant biased result triggers a plain retry');
+  assert.equal(result?.slots.entity?.title, 'Query optimization');
+});
+
+test('a disambiguation article is rejected from either path', async () => {
+  const http: HttpClient = {
+    async json(url: string) {
+      if (url.includes('page/summary')) {
+        return { type: 'disambiguation', title: 'Planner', extract: 'Planner may refer to:' } as never;
+      }
+      return searchPayload([{ title: 'Planner', extract: 'Planner may refer to: a person…' }]) as never;
+    },
+  };
+  assert.equal(await wikipediaProvider.run({ ...request, text: 'planner' }, context(http)), null);
+});
+
+test('wikipedia returns nothing rather than throwing when everything fails', async () => {
+  const http: HttpClient = {
+    async json() {
+      throw new Error('HTTP 429');
+    },
+  };
+  assert.equal(await wikipediaProvider.run(request, context(http)), null);
 });
 
 test('quick links differ by intent and are all absolute https URLs', () => {
