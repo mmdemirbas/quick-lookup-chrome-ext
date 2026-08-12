@@ -141,17 +141,41 @@ function renderStatus(status: StatusResponse): void {
     // far the more useful of the two, so it comes first and is kept apart.
     // Measured in Brave: with no flags every API is absent; enabling the
     // translation flag alone is enough to make the translator downloadable.
-    box.append(turningOn('To translate', [
-      'Open brave://flags and enable the experimental translation API.',
-      'Restart Brave, then use the Download button below.',
-    ]));
+    // Ranking is a separate capability from translating, and a much harder
+    // one to obtain: the flags exist in Brave, but the model behind them
+    // reported "unavailable" on every machine measured so far. Translation
+    // is handled next to the Download button, where the action is.
     box.append(turningOn('To rank meanings by page context', [
       'Open brave://flags and enable "Prompt API for Gemini Nano".',
       'Set "Enables optimization guide on device" to EnabledBypassPerfRequirement.',
-      'Restart, then open brave://components and update "Optimization Guide On Device Model".',
-      'The download is large. Chrome and Brave both skip it on a metered connection.',
+      'Restart. The model then has to arrive as a component, which it may never do.',
+      'This is optional. Nothing needs it, and translation does not use it at all.',
     ]));
   }
+}
+
+/**
+ * What to do when the browser exposes no translator at all.
+ *
+ * Measured, because the obvious advice is wrong: Brave's flags page lists
+ * 760 experiments and not one of them is the translation API. It exists
+ * only as a launch switch, so telling the reader to "enable a flag" sends
+ * them hunting for something that is not there. Chrome needs nothing.
+ */
+function showAbsentTranslator(): void {
+  const row = $('translationRow');
+  row.parentElement?.append(
+    turningOn('To translate in Brave', [
+      'Quit Brave completely.',
+      'Run: open -a "Brave Browser" --args --enable-features=TranslationAPI',
+      'Brave has no setting for this, so it applies only to launches started that way.',
+      'Come back here and press Download.',
+    ]),
+    turningOn('Or use Chrome', [
+      'Chrome 138 and later expose the translator with no flags at all.',
+      'Load the extension there and press Download.',
+    ]),
+  );
 }
 
 function turningOn(title: string, steps: string[]): HTMLElement {
@@ -205,7 +229,8 @@ async function renderTranslation(): Promise<void> {
       show(`English to ${name} is downloading. It will start working on its own.`, false);
       return;
     case 'absent':
-      show('This browser has no built-in translator.', false);
+      show('This browser does not expose a built-in translator.', false);
+      showAbsentTranslator();
       return;
     default:
       show(`This device cannot run English to ${name} translation.`, false);

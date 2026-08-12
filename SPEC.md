@@ -103,15 +103,22 @@ Probed on this machine (2026-08-12) by loading the extension and calling
 
 | Browser | Translator | LanguageModel | Detector, Summarizer |
 |---|---|---|---|
-| Brave 150, no flags | absent | absent | absent |
-| Brave 150, translation flag on | **downloadable** | absent | absent |
-| Brave 150, every AI flag on | downloadable | unavailable | absent / unavailable |
+| Brave 150, as installed | absent | absent | absent |
+| Brave 150, `--enable-features=TranslationAPI` | **downloadable** | absent | absent |
+| Brave 150, every AI switch | downloadable | unavailable | absent / unavailable |
+| **Chrome 151, no flags** | **downloadable** | unavailable | unavailable |
 | Chromium (Chrome for Testing) | downloadable | unavailable | unavailable |
 
-Two things follow. Translation is reachable in Brave by enabling one flag,
-which makes it the capability worth building for first — it is also the one
-the reader asked for, to stop needing a translation extension. Free-form
-generation is not reachable here at all, so nothing may depend on it.
+**The translation API is not in Brave's flags UI.** That page lists 760
+experiments and none of them is it; the Prompt, Writer, Rewriter and
+Summarizer APIs for Gemini Nano are all there, and translation is not. It
+can only be turned on with a launch switch, which on macOS means
+`open -a "Brave Browser" --args --enable-features=TranslationAPI` and
+applies only to launches started that way. Chrome needs nothing.
+
+Two things follow. Translation is the capability worth building for — it is
+what the reader asked for, and it is obtainable. Free-form generation is not
+reachable on any browser measured here, so nothing may depend on it.
 
 A `downloadable` pair needs an explicit request: browsers gate a language
 pack behind a user gesture and will wait forever to be asked. That is why
