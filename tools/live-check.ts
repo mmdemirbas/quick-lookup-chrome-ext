@@ -19,6 +19,7 @@ import { wikipediaProvider } from '../src/core/providers/wikipedia.ts';
 import { stackExchangeProvider } from '../src/core/providers/stackexchange.ts';
 import { registryProvider } from '../src/core/providers/registry.ts';
 import { mdnProvider } from '../src/core/providers/mdn.ts';
+import { findDefinitions } from '../src/core/page-definition.ts';
 import type { Card, HttpClient, PageContext } from '../src/core/types.ts';
 
 const UA = 'QuickLookup/0.2.0 (https://github.com/mmdemirbas/quick-lookup-chrome-ext)';
@@ -47,9 +48,35 @@ const providers = [
 type Case = {
   text: string;
   page: PageContext;
+  /**
+   * Fetch this page and find its definitions of the selection, the way the
+   * content script would. Pins the local extractor against real prose,
+   * which no fixture can do.
+   */
+  readPage?: string;
   /** What must be true for this case to count as working. */
   expect: (card: Card) => string | undefined;
 };
+
+/**
+ * Roughly what the content script's TreeWalker produces: readable text with
+ * scripts, styles and markup gone, blocks separated by a space.
+ */
+async function readableText(url: string): Promise<string> {
+  const response = await fetch(url, { headers: { 'Api-User-Agent': UA } });
+  if (!response.ok) throw new Error(`HTTP ${response.status} ${url}`);
+  const html = await response.text();
+  return html
+    .replace(/<(script|style|noscript|template)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&(?:nbsp|#160);/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&(?:quot|#34);/g, '"')
+    .replace(/&(?:#39|apos);/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ');
+}
 
 const CASES: Case[] = [
   {
@@ -83,15 +110,22 @@ const CASES: Case[] = [
     // general article, but with the page topic it resolves to the sense the
     // reader is actually looking at.
     text: 'manifest',
+    // Also pins the local definition extractor against real documentation
+    // prose, which no fixture can do.
+    readPage: 'https://iceberg.apache.org/spec/',
     page: {
       host: 'iceberg.apache.org',
       title: 'Apache Iceberg table specification',
       topicTerms: ['iceberg', 'table', 'metadata', 'partition', 'snapshot', 'query'],
     },
-    expect: (card) =>
-      /iceberg/i.test(card.slots.entity?.data?.title ?? '')
+    expect: (card) => {
+      if (!/iceberg/i.test(card.slots.entity?.data?.title ?? '')) {
+        return `page context did not steer the article (got "${card.slots.entity?.data?.title ?? 'nothing'}")`;
+      }
+      return card.slots.onPage?.data?.length
         ? undefined
-        : `page context did not steer the article (got "${card.slots.entity?.data?.title ?? 'nothing'}")`,
+        : 'expected the specification to define its own central term';
+    },
   },
   {
     // The technical path end to end: a term with a Stack Overflow tag wiki
@@ -148,6 +182,16 @@ const CASES: Case[] = [
 let failures = 0;
 
 for (const testCase of CASES) {
+  if (testCase.readPage) {
+    try {
+      const text = await readableText(testCase.readPage);
+      const found = findDefinitions(testCase.text, text).map((d) => d.text);
+      if (found.length) testCase.page = { ...testCase.page, definitions: found };
+      console.log(`\n     read ${testCase.readPage} — ${(text.length / 1024) | 0}KB of text, ${found.length} definition(s)`);
+    } catch (error) {
+      console.log(`\n     could not read ${testCase.readPage}: ${(error as Error).message}`);
+    }
+  }
   const decision = routeIntent(extractSignals(testCase.text, testCase.page), 'en');
   const started = Date.now();
   let firstEvidenceMs = 0;
@@ -192,6 +236,10 @@ for (const testCase of CASES) {
     console.log(
       `     related: ${related.slice(0, 8).map((r) => `${r.word}·${r.kind[0]}`).join('  ')}`,
     );
+  }
+
+  for (const sentence of card.slots.onPage?.data ?? []) {
+    console.log(`     on page: ${sentence.slice(0, 110)}`);
   }
 
   const facts = card.slots.facts?.data ?? [];

@@ -171,11 +171,26 @@ host, and the most distinctive terms on the page.
 Local context carries the enclosing sentence, the nearest heading above
 the selection, and whether the selection is inside code.
 
-Context is used three ways, in increasing order of risk:
+Context is used four ways, in increasing order of risk:
 
-1. Bias the search query sent to a source.
-2. Rank returned senses by overlap with the topic and the sentence.
-3. Ask the model to choose one of the senses a source returned.
+1. **As a source.** The page is scanned locally for a sentence that
+   *defines* the selection rather than merely using it. This is the only
+   source that can know what a term means here, and it costs no request and
+   sends nothing anywhere.
+2. Bias the search query sent to a source.
+3. Rank returned senses by overlap with the topic and the sentence.
+4. Ask the model to choose one of the senses a source returned.
+
+The page text is walked once per page with a `TreeWalker`, never
+`innerText`, and built lazily on the first lookup — a page nothing is
+looked up on costs nothing. The scan stops at 200,000 characters and at the
+fortieth occurrence of the term, because a page that defines a term does so
+early.
+
+The patterns are narrow on purpose. A sentence that merely contains the
+word is not evidence of anything and there are usually dozens of those.
+Three shapes count: the term as the subject of a defining verb, a glossary
+entry, and the term introduced as a name for something.
 
 ## 8. Answer composition
 
@@ -184,7 +199,7 @@ The card renders slots as they arrive and reserves their height, so
 nothing below moves.
 
 Slots: `headword`, `pronunciation`, `gloss`, `senses`, `related`,
-`translation`, `entity`, `facts`, `extract`, `links`, `sources`.
+`translation`, `entity`, `facts`, `extract`, `onPage`, `links`, `sources`.
 
 Several providers may write the same slot. Merge rules are per slot:
 first non-empty for scalars, deduplicated union for lists, with the
@@ -211,6 +226,7 @@ richer answer than any single source.
 
 | Source | Used for | Notes |
 |---|---|---|
+| The page itself | What the term means here | Local, instant, no request. See section 7 |
 | freedictionaryapi.com | Definitions, pronunciation | Wiktionary data, 1000 req/hour/IP, no key |
 | en.wiktionary.org REST | Definitions | Independent path on Wikimedia infrastructure |
 | Datamuse | Synonyms, related words, collocations | Free to 100k/day until 2027-01-01 |

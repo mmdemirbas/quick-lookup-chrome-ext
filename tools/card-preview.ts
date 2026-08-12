@@ -119,6 +119,11 @@ function technicalCard(): Card {
       ],
     },
   });
+  applyResult(card, 'page', {
+    slots: {
+      onPage: ['Webpack is configured with a single webpack.config.js at the project root.'],
+    },
+  });
   applyResult(card, 'links', { slots: { links: linksFor('technical', 'webpack', 'en') } });
   return finalise(card, []);
 }

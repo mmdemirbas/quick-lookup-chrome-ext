@@ -39,14 +39,14 @@ function getSlot(card: Card, id: SlotId): { state: SlotState; data?: unknown } |
 
 /** Render order per intent. The first slot is the one the eye lands on. */
 const LAYOUT: Record<Intent, SlotId[]> = {
-  word: ['headword', 'pronunciation', 'gloss', 'senses', 'related', 'translation', 'links'],
-  phrase: ['gloss', 'senses', 'extract', 'translation', 'links'],
-  entity: ['entity', 'facts', 'extract', 'translation', 'links'],
-  technical: ['gloss', 'extract', 'facts', 'entity', 'senses', 'links'],
+  word: ['headword', 'pronunciation', 'gloss', 'onPage', 'senses', 'related', 'translation', 'links'],
+  phrase: ['gloss', 'onPage', 'senses', 'extract', 'translation', 'links'],
+  entity: ['entity', 'facts', 'onPage', 'extract', 'translation', 'links'],
+  technical: ['gloss', 'onPage', 'extract', 'facts', 'entity', 'senses', 'links'],
   citation: ['facts', 'extract', 'links'],
   quantity: ['gloss', 'facts', 'links'],
   foreign: ['translation', 'headword', 'senses', 'links'],
-  unknown: ['gloss', 'extract', 'entity', 'links'],
+  unknown: ['gloss', 'onPage', 'extract', 'entity', 'links'],
 };
 
 export function layoutFor(intent: Intent): SlotId[] {

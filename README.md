@@ -56,7 +56,10 @@ that, but a network outage is not a reason to block a commit.
    fetch rather than guessing — providers run in parallel and merge, so
    fetching two paths costs one extra request and gives a better card.
 3. **Sources.** Several per job, with independent failure modes. One
-   source failing removes a slot, never the card.
+   source failing removes a slot, never the card. The first one consulted
+   is the page itself: it is scanned locally for a sentence that *defines*
+   the selection, which is the only way to learn what a term means on this
+   particular page. It costs no request and sends nothing anywhere.
 4. **Page context.** The page is profiled once — title, headings,
    description — and that profile biases the search and ranks the senses.
    This is what makes `manifest` on an Iceberg page resolve to Apache

@@ -103,6 +103,14 @@ ol.senses li:last-child { margin-bottom: 0; }
 .example { display: block; color: var(--soft); font-style: italic; margin-top: 2px; }
 .origin { color: var(--faint); font-size: 11px; margin-left: 4px; }
 
+/* A sentence lifted from the page, marked as quoted so it is not mistaken
+   for the extension's own words. */
+.quote {
+  margin: 0 0 6px; padding-left: 9px;
+  border-left: 2px solid var(--border); color: var(--soft);
+}
+.quote:last-child { margin-bottom: 0; }
+
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .chip {
   border: 1px solid var(--border); border-radius: 999px;
@@ -143,6 +151,7 @@ const SLOT_LABEL: Partial<Record<SlotId, string>> = {
   related: 'Related',
   links: 'Look up in',
   extract: 'Summary',
+  onPage: 'On this page',
   facts: 'Facts',
 };
 
@@ -428,6 +437,14 @@ export class CardView {
         if (card.slots.entity?.state === 'filled') return undefined;
         const extract = slot.data as { text: string };
         section.append(el('div', 'label', label ?? id), el('div', undefined, extract.text));
+        return section;
+      }
+
+      case 'onPage': {
+        const sentences = slot.data as string[];
+        if (sentences.length === 0) return undefined;
+        section.append(el('div', 'label', label ?? id));
+        for (const sentence of sentences) section.append(el('p', 'quote', sentence));
         return section;
       }
 

@@ -22,6 +22,7 @@ export type SlotId =
   | 'entity'
   | 'facts'
   | 'extract'
+  | 'onPage'
   | 'links';
 
 /**
@@ -41,6 +42,12 @@ export type PageContext = {
   nearestHeading?: string;
   sentence?: string;
   inCode?: boolean;
+  /**
+   * Sentences on the page that define the selection, best first. Found
+   * locally by the content script, because the page is the only source that
+   * knows what a term means *here*.
+   */
+  definitions?: string[];
 };
 
 export type LookupRequest = {
@@ -99,6 +106,7 @@ export type SlotData = {
   entity: EntitySummary;
   facts: Array<{ label: string; value: string; source: string }>;
   extract: { text: string; source: string; url?: string };
+  onPage: string[];
   links: LinkTarget[];
 };
 

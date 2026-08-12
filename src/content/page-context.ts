@@ -11,8 +11,58 @@
  */
 import type { PageContext } from '../core/types.ts';
 import { contentWords } from '../core/text.ts';
+import { findDefinitions } from '../core/page-definition.ts';
 
 const MAX_TOPIC_TERMS = 24;
+
+/**
+ * Enough of a long page to contain its definitions, and bounded so a
+ * pathological one cannot cost megabytes.
+ */
+const MAX_PAGE_CHARS = 200_000;
+
+const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'SVG']);
+
+let pageTextCache: string | undefined;
+let pageTextFor = '';
+
+/**
+ * The readable text of the page, built once and reused.
+ *
+ * A `TreeWalker` over text nodes rather than `innerText`, which would force
+ * a layout. Built lazily on the first lookup, so a page the reader never
+ * looks anything up on pays nothing at all.
+ */
+export function pageText(): string {
+  if (pageTextCache !== undefined && pageTextFor === location.href) return pageTextCache;
+
+  const walker = document.createTreeWalker(document.body ?? document, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const parent = node.parentElement;
+      if (!parent || SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+      // The extension's own UI is not part of the page.
+      if (parent.closest('quick-lookup-card, quick-lookup-hover, quick-lookup-handle')) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  const parts: string[] = [];
+  let total = 0;
+  while (total < MAX_PAGE_CHARS) {
+    const node = walker.nextNode();
+    if (!node) break;
+    const text = node.nodeValue?.trim();
+    if (!text) continue;
+    parts.push(text);
+    total += text.length + 1;
+  }
+
+  pageTextCache = parts.join(' ');
+  pageTextFor = location.href;
+  return pageTextCache;
+}
 
 function meta(name: string): string | undefined {
   const el =
@@ -76,6 +126,8 @@ export function pageProfile(): PageContext {
 export function resetPageProfile(): void {
   cached = undefined;
   cachedFor = '';
+  pageTextCache = undefined;
+  pageTextFor = '';
 }
 
 function isCodeElement(node: Node | null): boolean {
@@ -125,11 +177,13 @@ export function contextForSelection(range: Range | null, selected: string): Page
   const anchor = range.startContainer;
   const heading = nearestHeading(anchor);
   const sentence = enclosingSentence(anchor, selected);
+  const definitions = findDefinitions(selected, pageText()).map((d) => d.text);
 
   return {
     ...profile,
     inCode: isCodeElement(anchor),
     ...(heading ? { nearestHeading: heading } : {}),
     ...(sentence ? { sentence } : {}),
+    ...(definitions.length ? { definitions } : {}),
   };
 }

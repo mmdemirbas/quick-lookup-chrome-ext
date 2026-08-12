@@ -6,7 +6,7 @@ import { wiktionaryProvider } from './wiktionary.ts';
 import { datamuseProvider } from './datamuse.ts';
 import { biasTerms, chooseCandidate, wikipediaProvider } from './wikipedia.ts';
 import { linksFor } from './links.ts';
-import { isDefinition, stackExchangeProvider, tagCandidates } from './stackexchange.ts';
+import { definitionText, stackExchangeProvider, tagCandidates } from './stackexchange.ts';
 import { packageName, registryProvider } from './registry.ts';
 import { mdnProvider, titleMatches } from './mdn.ts';
 
@@ -328,10 +328,22 @@ test('tag candidates cover the spellings a term might have, best first', () => {
   assert.deepEqual(tagCandidates('naïve'), []);
 });
 
-test('a tag wiki that only explains what may be asked is not a definition', () => {
-  assert.ok(isDefinition(SE_ICEBERG));
-  assert.ok(!isDefinition(SE_KUBERNETES));
-  assert.ok(!isDefinition('Use it.'), 'too short to be a definition');
+test('advice to askers is separated from the definition, sentence by sentence', () => {
+  assert.equal(definitionText(SE_ICEBERG), SE_ICEBERG);
+
+  // Defines the term, then adds a note about the tag. Keep the first, drop
+  // the second — this is the common shape.
+  assert.equal(
+    definitionText(
+      'A manifest is a file containing metadata about an application, data file or assembly. Generally an ambiguous tag, try and use a more specific one.',
+    ),
+    'A manifest is a file containing metadata about an application, data file or assembly.',
+  );
+
+  // Opens with advice, so what follows continues it rather than defining
+  // anything. The kubernetes wiki never says what Kubernetes is.
+  assert.equal(definitionText(SE_KUBERNETES), undefined);
+  assert.equal(definitionText('Use it.'), undefined, 'too short to be a definition');
 });
 
 test('stack exchange prefers the hyphenated tag and fills gloss, extract and a link', async () => {

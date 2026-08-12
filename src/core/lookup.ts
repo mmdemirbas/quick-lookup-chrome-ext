@@ -13,6 +13,7 @@ import type { Card, HttpClient, LookupRequest, Provider } from './types.ts';
 import type { Decision } from './intent/router.ts';
 import { applyResult, createCard, finalise } from './card.ts';
 import { makeLinksProvider } from './providers/links.ts';
+import { pageProvider } from './providers/page.ts';
 import { contentWords } from './text.ts';
 
 export type LookupDeps = {
@@ -79,7 +80,14 @@ export async function runLookup(
   const outerSignal = options.signal ?? new AbortController().signal;
 
   const card = createCard(request.id, request.text, decision.intent);
-  const providers = [...selectProviders(deps.providers, decision), makeLinksProvider(decision.intent)];
+  // The page and the quick links are always available and cost nothing, so
+  // they are added rather than selected: every card has something in it
+  // even when every network source fails.
+  const providers = [
+    ...selectProviders(deps.providers, decision),
+    pageProvider,
+    makeLinksProvider(decision.intent),
+  ];
 
   const emit = () => {
     card.elapsedMs = now() - started;
