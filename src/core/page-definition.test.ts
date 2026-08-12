@@ -2,19 +2,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { definitionScore, findDefinitions } from './page-definition.ts';
 
-/** Prose in the shape technical documentation actually uses. */
-const SPEC = `
-Apache Iceberg table specification. This document describes the format.
-A snapshot is the state of a table at some time. Each snapshot lists all of
-the data files that make up the table contents. Writers produce a new
-snapshot on every commit, and readers use the current one.
-The query planner is the component that turns a logical plan into a set of
-concrete file scans. Before planning begins the planner reads the manifest
-list. Planning is not the same as optimisation, and the planner may be
-asked to plan the same query twice.
-Manifest: a file that lists data files along with their partition values
-and per-column statistics.
-`;
+/**
+ * Documentation prose in the form the content script produces it: one line
+ * per block, whitespace inside a block already collapsed. Headings are
+ * included because a heading with no full stop running into the paragraph
+ * below it is the thing that breaks naive extraction.
+ */
+const SPEC = [
+  'Apache Iceberg table specification',
+  'Metadata',
+  'A snapshot is the state of a table at some time. Each snapshot lists all of the data files that make up the table contents. Writers produce a new snapshot on every commit, and readers use the current one.',
+  'Planning',
+  'The query planner is the component that turns a logical plan into a set of concrete file scans. Before planning begins the planner reads the manifest list. Planning is not the same as optimisation, and the planner may be asked to plan the same query twice.',
+  'Manifest: a file that lists data files along with their partition values and per-column statistics.',
+].join('\n');
 
 test('a sentence that defines the term outranks the many that only use it', () => {
   const found = findDefinitions('planner', SPEC);
@@ -40,6 +41,18 @@ test('a term the page never defines produces nothing', () => {
   assert.deepEqual(findDefinitions('table', SPEC), []);
   assert.deepEqual(findDefinitions('', SPEC), []);
   assert.deepEqual(findDefinitions('planner', ''), []);
+});
+
+test('a heading does not run into the sentence beneath it', () => {
+  // Headings carry no full stop. Joined to the paragraph below, the term
+  // lands too far from the start to read as the subject of its own
+  // definition — which is how a real page loses its best sentence.
+  const page = ['Metadata', 'A manifest is a metadata file that lists data files.'].join('\n');
+  assert.match(findDefinitions('manifest', page)[0]?.text ?? '', /^A manifest is a metadata file/);
+
+  // And the definition still wins over a later sentence that merely uses it.
+  const withUse = [...page.split('\n'), 'The manifest list is read before planning begins.'].join('\n');
+  assert.match(findDefinitions('manifest', withUse)[0]?.text ?? '', /^A manifest is a metadata file/);
 });
 
 test('whole words only', () => {

@@ -23,6 +23,28 @@ const MAX_PAGE_CHARS = 200_000;
 
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'SVG']);
 
+/**
+ * Elements that end a sentence by ending a block.
+ *
+ * A heading does not finish with a full stop, so without this the heading
+ * and the paragraph under it read as one sentence — which pushes the term
+ * far enough from the start that it stops looking like the subject of its
+ * own definition. Text inside one block is joined with a space, text across
+ * two with a newline, and the extractor treats a newline as a sentence end.
+ */
+const BLOCK_TAGS = new Set([
+  'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DD', 'DIV', 'DL', 'DT', 'FIELDSET',
+  'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+  'HEADER', 'HR', 'LI', 'MAIN', 'NAV', 'OL', 'P', 'PRE', 'SECTION', 'TABLE',
+  'TBODY', 'TD', 'TFOOT', 'TH', 'THEAD', 'TR', 'UL',
+]);
+
+function blockOf(node: Node): Element | null {
+  let el = node.parentElement;
+  while (el && !BLOCK_TAGS.has(el.tagName)) el = el.parentElement;
+  return el;
+}
+
 let pageTextCache: string | undefined;
 let pageTextFor = '';
 
@@ -50,16 +72,24 @@ export function pageText(): string {
 
   const parts: string[] = [];
   let total = 0;
+  let previousBlock: Element | null | undefined;
   while (total < MAX_PAGE_CHARS) {
     const node = walker.nextNode();
     if (!node) break;
-    const text = node.nodeValue?.trim();
+    // Markup wraps prose at arbitrary points, so whitespace inside one text
+    // node is never a sentence boundary. Collapsing it here is what lets a
+    // newline mean "new block" downstream.
+    const text = node.nodeValue?.replace(/\s+/g, ' ').trim();
     if (!text) continue;
+
+    const block = blockOf(node);
+    if (parts.length > 0) parts.push(block === previousBlock ? ' ' : '\n');
+    previousBlock = block;
     parts.push(text);
     total += text.length + 1;
   }
 
-  pageTextCache = parts.join(' ');
+  pageTextCache = parts.join('');
   pageTextFor = location.href;
   return pageTextCache;
 }

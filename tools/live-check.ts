@@ -58,9 +58,16 @@ type Case = {
   expect: (card: Card) => string | undefined;
 };
 
+/** Block elements, which the content script separates with a newline. */
+const BLOCKS =
+  'address|article|aside|blockquote|dd|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|table|tbody|td|tfoot|th|thead|tr|ul';
+
 /**
  * Roughly what the content script's TreeWalker produces: readable text with
- * scripts, styles and markup gone, blocks separated by a space.
+ * scripts, styles and markup gone, blocks separated by a newline and
+ * whitespace inside a block collapsed. The block rule matters — without it
+ * a heading runs into the paragraph below and the extractor is measured on
+ * text it will never see.
  */
 async function readableText(url: string): Promise<string> {
   const response = await fetch(url, { headers: { 'Api-User-Agent': UA } });
@@ -68,6 +75,7 @@ async function readableText(url: string): Promise<string> {
   const html = await response.text();
   return html
     .replace(/<(script|style|noscript|template)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(new RegExp(`</?(?:${BLOCKS})\\b[^>]*>`, 'gi'), '\n')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&(?:nbsp|#160);/g, ' ')
     .replace(/&amp;/g, '&')
@@ -75,7 +83,8 @@ async function readableText(url: string): Promise<string> {
     .replace(/&(?:#39|apos);/g, "'")
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ');
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\s*\n\s*/g, '\n');
 }
 
 const CASES: Case[] = [

@@ -74,19 +74,22 @@ export function definitionScore(term: string, sentence: string): number {
 /**
  * The sentence surrounding an offset, bounded so one long node stays cheap.
  *
- * A newline is not a sentence boundary. Markup wraps prose at arbitrary
- * points, so treating one as an end truncates the sentence mid-clause —
- * usually just before the verb that made it a definition. Block boundaries
- * arrive as separate text nodes and are joined with a space instead.
+ * A newline ends a sentence, because the caller separates blocks with one
+ * and collapses whitespace inside them. That distinction is load-bearing: a
+ * heading has no full stop, so without it the heading and the paragraph
+ * beneath run together, and the term ends up too far from the start to read
+ * as the subject of its own definition. Treating *all* whitespace as a
+ * boundary would be the opposite mistake — markup wraps prose at arbitrary
+ * points, and the sentence would be cut off mid-clause.
  */
 function sentenceAround(text: string, at: number, length: number): string {
   const before = text.slice(Math.max(0, at - MAX_SENTENCE_CHARS), at);
-  const startOffset = before.search(/[.!?][^.!?]*$/);
+  const startOffset = before.search(/[.!?\n][^.!?\n]*$/);
   const start = startOffset < 0 ? at - before.length : at - before.length + startOffset + 1;
 
   const from = at + length;
   const tail = text.slice(from, from + MAX_SENTENCE_CHARS);
-  const endMark = tail.search(/[.!?]/);
+  const endMark = tail.search(/[.!?\n]/);
   const end = endMark < 0 ? from + tail.length : from + endMark + 1;
 
   return text.slice(start, end).replace(/\s+/g, ' ').trim();
