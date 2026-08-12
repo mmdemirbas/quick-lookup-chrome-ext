@@ -41,6 +41,66 @@ together with their partition values and per-column statistics.</p>
 commit. The manifest list is read before planning begins.</p>
 </body></html>`;
 
+/**
+ * A stand-in for the browser's translator.
+ *
+ * The real language pack is a large download served by the browser vendor's
+ * component updater, which Chrome for Testing cannot reach — and waiting on
+ * one would make this check slow and dependent on a third party either way.
+ * What needs proving here is the wiring: that a `downloadable` pair offers a
+ * button, that progress is reported, and that the settings page ends up
+ * saying the pair is ready. The real model is the browser's job, not ours.
+ */
+const FAKE_TRANSLATOR = `
+  let state = 'downloadable';
+  Object.defineProperty(window, 'Translator', {
+    configurable: true,
+    value: {
+      async availability() { return state; },
+      async create(options) {
+        const listeners = [];
+        options.monitor?.({ addEventListener: (_type, fn) => listeners.push(fn) });
+        for (let step = 1; step <= 4; step++) {
+          await new Promise((r) => setTimeout(r, 20));
+          for (const fn of listeners) fn({ loaded: step / 4 });
+        }
+        state = 'available';
+        return { translate: async (text) => text, destroy() {} };
+      },
+    },
+  });
+`;
+
+async function checkTranslationDownload(context: BrowserContext, id: string): Promise<void> {
+  const page = await context.newPage();
+  await page.addInitScript(FAKE_TRANSLATOR);
+  await page.goto(`chrome-extension://${id}/options.html`, { waitUntil: 'domcontentloaded' });
+
+  const button = page.locator('#downloadTranslation');
+  const label = page.locator('#translationLabel');
+
+  const offered = await button
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  record(
+    'a downloadable language pair offers a download',
+    offered,
+    offered ? ((await label.textContent()) ?? '') : 'no button appeared',
+  );
+
+  if (offered) {
+    await button.click();
+    const ready = await label
+      .filter({ hasText: /is ready and runs on this device/ })
+      .waitFor({ timeout: 8000 })
+      .then(() => true)
+      .catch(() => false);
+    record('downloading a language pair reports progress and completes', ready, (await label.textContent()) ?? '');
+  }
+  await page.close();
+}
+
 type Check = { name: string; ok: boolean; detail: string };
 const checks: Check[] = [];
 const record = (name: string, ok: boolean, detail = '') => checks.push({ name, ok, detail });
@@ -128,6 +188,8 @@ try {
       .catch(() => false);
     record('Escape closes the card', closed);
   }
+
+  await checkTranslationDownload(context, worker.url().split('/')[2] ?? '');
 
   record('no errors from the background script', workerErrors.length === 0, workerErrors.join(' | '));
   record('no errors on the page', pageErrors.length === 0, pageErrors.join(' | '));

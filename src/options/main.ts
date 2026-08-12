@@ -1,6 +1,7 @@
 /** Settings page. Reads and writes through the service worker. */
 import { DEFAULT_SETTINGS, mergeSettings, type Modifier, type Settings, type TriggerMode } from '../core/settings.ts';
 import { ext } from '../platform/browser.ts';
+import { downloadTranslation, translationAvailability } from '../platform/ai.ts';
 import type { StatusResponse } from '../shared/messages.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -136,19 +137,94 @@ function renderStatus(status: StatusResponse): void {
   box.append(headline, reason, note);
 
   if (!capabilities.generate) {
-    const steps = document.createElement('ol');
-    for (const step of [
+    // Translation and ranking are separate switches, and translation is by
+    // far the more useful of the two, so it comes first and is kept apart.
+    // Measured in Brave: with no flags every API is absent; enabling the
+    // translation flag alone is enough to make the translator downloadable.
+    box.append(turningOn('To translate', [
+      'Open brave://flags and enable the experimental translation API.',
+      'Restart Brave, then use the Download button below.',
+    ]));
+    box.append(turningOn('To rank meanings by page context', [
       'Open brave://flags and enable "Prompt API for Gemini Nano".',
-      'Set "Enables optimization guide on device" to EnabledBypassPrefRequirement.',
+      'Set "Enables optimization guide on device" to EnabledBypassPerfRequirement.',
       'Restart, then open brave://components and update "Optimization Guide On Device Model".',
-      'The download is large and is skipped on metered connections.',
-    ]) {
-      const li = document.createElement('li');
-      li.textContent = step;
-      steps.append(li);
-    }
-    box.append(steps);
+      'The download is large. Chrome and Brave both skip it on a metered connection.',
+    ]));
   }
+}
+
+function turningOn(title: string, steps: string[]): HTMLElement {
+  const wrap = document.createElement('div');
+  const heading = document.createElement('div');
+  heading.className = 'headline';
+  heading.textContent = title;
+  const list = document.createElement('ol');
+  for (const step of steps) {
+    const li = document.createElement('li');
+    li.textContent = step;
+    list.append(li);
+  }
+  wrap.append(heading, list);
+  return wrap;
+}
+
+/**
+ * Status of the language pair the gloss is written in, and the one control
+ * that can change it.
+ *
+ * A language pack is a large download that the browser only performs when
+ * asked, so it needs a button: without one the translate path could never
+ * become live no matter how long the reader waited. Every state the browser
+ * can report gets its own sentence, because "unavailable" and "not
+ * downloaded yet" call for completely different actions.
+ */
+async function renderTranslation(): Promise<void> {
+  const label = $('translationLabel');
+  const button = $<HTMLButtonElement>('downloadTranslation');
+  const target = fields.glossLanguage.value;
+  const name = fields.glossLanguage.selectedOptions[0]?.textContent ?? target;
+
+  const show = (text: string, offer: boolean) => {
+    label.textContent = text;
+    button.hidden = !offer;
+    button.disabled = !offer;
+  };
+
+  show('Checking the translation model…', false);
+  const state = await translationAvailability('en', target);
+
+  switch (state) {
+    case 'available':
+      show(`English to ${name} is ready and runs on this device.`, false);
+      return;
+    case 'downloadable':
+      show(`English to ${name} needs a one-time download.`, true);
+      break;
+    case 'downloading':
+      show(`English to ${name} is downloading. It will start working on its own.`, false);
+      return;
+    case 'absent':
+      show('This browser has no built-in translator.', false);
+      return;
+    default:
+      show(`This device cannot run English to ${name} translation.`, false);
+      return;
+  }
+
+  button.onclick = async () => {
+    button.disabled = true;
+    label.textContent = `Downloading English to ${name}…`;
+    const settled = await downloadTranslation('en', target, (fraction) => {
+      label.textContent = `Downloading English to ${name}… ${Math.round(fraction * 100)}%`;
+    });
+    if (settled === 'available') {
+      show(`English to ${name} is ready and runs on this device.`, false);
+    } else {
+      // Refused, cancelled or failed. Say so and leave the button usable.
+      show(`The download did not finish. English to ${name} is still unavailable.`, true);
+    }
+  };
 }
 
 function flashSaved(): void {
@@ -182,3 +258,8 @@ void ext.runtime.sendMessage({ type: 'QL_GET_SETTINGS' }).then((stored) => {
 void ext.runtime.sendMessage({ type: 'QL_GET_STATUS' }).then((status: StatusResponse) => {
   renderStatus(status);
 });
+
+// The pair depends on the chosen language, so the status follows the select
+// rather than only the page load.
+fields.glossLanguage.addEventListener('change', () => void renderTranslation());
+void renderTranslation();

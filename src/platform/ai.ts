@@ -32,11 +32,16 @@ type LanguageModelGlobal = {
   }>;
 };
 
+type DownloadMonitor = {
+  addEventListener(type: 'downloadprogress', listener: (event: { loaded: number }) => void): void;
+};
+
 type TranslatorGlobal = {
   availability(options: { sourceLanguage: string; targetLanguage: string }): Promise<Availability>;
   create(options: {
     sourceLanguage: string;
     targetLanguage: string;
+    monitor?: (monitor: DownloadMonitor) => void;
   }): Promise<{ translate(text: string): Promise<string>; destroy?(): void }>;
 };
 
@@ -81,8 +86,8 @@ export async function detectCapabilities(): Promise<Capabilities> {
       };
     }
     return none(
-      'No built-in model in this browser. In Brave, enable the Prompt API and the ' +
-        'optimization guide flags, then download the component from brave://components.',
+      'No built-in model in this browser. Brave ships these APIs switched off; ' +
+        'each is a separate flag, and translation is the one worth turning on first.',
     );
   }
 
@@ -140,6 +145,55 @@ export async function translate(
     return out;
   } catch {
     return undefined;
+  }
+}
+
+export type TranslationState = Availability | 'absent';
+
+/** Whether one language pair is ready, could be downloaded, or is missing. */
+export async function translationAvailability(
+  sourceLanguage: string,
+  targetLanguage: string,
+): Promise<TranslationState> {
+  if (!scope.Translator) return 'absent';
+  try {
+    return await scope.Translator.availability({ sourceLanguage, targetLanguage });
+  } catch {
+    return 'unavailable';
+  }
+}
+
+/**
+ * Downloads a language pair, reporting progress.
+ *
+ * Separate from `translate` on purpose, and never called from the lookup
+ * path. A language pack is a large download that browsers gate behind a
+ * user gesture, so it belongs to an explicit button in settings — the same
+ * reason `downloadable` is reported as unusable everywhere else. Without
+ * this the translate path could never become live: the browser waits to be
+ * asked, and nothing was ever going to ask.
+ */
+export async function downloadTranslation(
+  sourceLanguage: string,
+  targetLanguage: string,
+  onProgress?: (fraction: number) => void,
+): Promise<TranslationState> {
+  if (!scope.Translator) return 'absent';
+  try {
+    const translator = await scope.Translator.create({
+      sourceLanguage,
+      targetLanguage,
+      monitor: (monitor) => {
+        monitor.addEventListener('downloadprogress', (event) => {
+          onProgress?.(Math.max(0, Math.min(1, event.loaded)));
+        });
+      },
+    });
+    translator.destroy?.();
+    return await translationAvailability(sourceLanguage, targetLanguage);
+  } catch {
+    // A refused or failed download leaves the setting exactly as it was.
+    return await translationAvailability(sourceLanguage, targetLanguage);
   }
 }
 

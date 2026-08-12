@@ -96,6 +96,28 @@ take the answer.
 download the model on a metered connection, so the extension must be
 complete without it.
 
+### 4.2 What is actually available, measured
+
+Probed on this machine (2026-08-12) by loading the extension and calling
+`availability()` inside its service worker:
+
+| Browser | Translator | LanguageModel | Detector, Summarizer |
+|---|---|---|---|
+| Brave 150, no flags | absent | absent | absent |
+| Brave 150, translation flag on | **downloadable** | absent | absent |
+| Brave 150, every AI flag on | downloadable | unavailable | absent / unavailable |
+| Chromium (Chrome for Testing) | downloadable | unavailable | unavailable |
+
+Two things follow. Translation is reachable in Brave by enabling one flag,
+which makes it the capability worth building for first — it is also the one
+the reader asked for, to stop needing a translation extension. Free-form
+generation is not reachable here at all, so nothing may depend on it.
+
+A `downloadable` pair needs an explicit request: browsers gate a language
+pack behind a user gesture and will wait forever to be asked. That is why
+settings carries a Download button. Without it the translate path could
+never become live, however long anyone waited.
+
 ## 5. Triggering
 
 ### 5.1 Selection
