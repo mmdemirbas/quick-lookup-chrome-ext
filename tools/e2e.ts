@@ -189,6 +189,43 @@ try {
     const sources = (await page.locator('quick-lookup-card footer span').first().textContent()) ?? '';
     console.log(`\n  ${sources.trim()}`);
 
+    // Copying is checked through the real clipboard rather than by asserting
+    // on the string the formatter returned — the unit tests already cover the
+    // formatting, and what can break here is everything in between.
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+    const readClipboard = () =>
+      page.evaluate(() => navigator.clipboard.readText()).catch(() => '');
+
+    const copyMarkdown = page
+      .locator('quick-lookup-card button.chip')
+      .filter({ hasText: 'Markdown' });
+    const offersCopy = (await copyMarkdown.count()) > 0;
+    record('the card offers a way to copy itself', offersCopy);
+
+    if (offersCopy) {
+      await copyMarkdown.click();
+      const copied = await readClipboard();
+      const said = await page
+        .locator('quick-lookup-card button.chip[data-state="done"]')
+        .count();
+      record(
+        'the copy button puts markdown on the clipboard and says so',
+        said === 1 && copied.startsWith('## manifest'),
+        copied ? `${copied.split('\n')[0]} (${copied.length} chars)` : 'clipboard was empty',
+      );
+
+      // The card never takes focus, so the keyboard route is the only one a
+      // reader who does not use a mouse has.
+      await page.evaluate(() => navigator.clipboard.writeText('not the card'));
+      await page.keyboard.press('Alt+c');
+      const byKeyboard = await readClipboard();
+      record(
+        'Alt+C copies the card without touching the mouse',
+        byKeyboard.startsWith('## manifest'),
+        byKeyboard.split('\n')[0] ?? '',
+      );
+    }
+
     // Escape must close it, because that is the reader's escape hatch.
     await page.keyboard.press('Escape');
     const closed = await card

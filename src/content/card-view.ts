@@ -13,6 +13,7 @@
  * string is ever parsed as markup.
  */
 import type { Card, Related, Sense, SlotId } from '../core/types.ts';
+import { formatCard, type ExportContext, type ExportFormat } from '../core/export.ts';
 
 const GAP = 10;
 const MARGIN = 8;
@@ -118,6 +119,10 @@ ol.senses li:last-child { margin-bottom: 0; }
   background: var(--surface); text-decoration: none; display: inline-block;
 }
 a.chip:hover { border-color: var(--accent); color: var(--accent); }
+button.chip { font: inherit; font-size: 12px; cursor: pointer; }
+button.chip:hover { border-color: var(--accent); color: var(--accent); }
+button.chip[data-state='done'] { border-color: var(--accent); color: var(--accent); }
+button.chip[data-state='failed'] { border-color: var(--warn); color: var(--warn); }
 .chip.synonym { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); color: var(--accent); }
 .chip.antonym { border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); color: var(--warn); }
 
@@ -161,6 +166,74 @@ export type CardViewCallbacks = {
   onEngage(): void;
 };
 
+/** The formats offered, in the order they appear on the card. */
+const FORMATS: Array<{ format: ExportFormat; label: string; hint: string }> = [
+  { format: 'text', label: 'Text', hint: 'Copy as plain text' },
+  { format: 'markdown', label: 'Markdown', hint: 'Copy as Markdown (Alt+C)' },
+  { format: 'anki', label: 'Anki', hint: 'Copy as an Anki note, tab separated' },
+];
+
+/** How long a button says what it just did before going back to its name. */
+const FEEDBACK_MS = 1400;
+
+/**
+ * Where the lookup happened, so a note can be traced back to the page that
+ * prompted it. Read at copy time rather than at render time, because a
+ * single-page navigation can change the URL under an open card.
+ */
+function exportContext(): ExportContext {
+  return {
+    url: location.href,
+    title: document.title,
+    capturedAt: new Date().toISOString().slice(0, 10),
+  };
+}
+
+/**
+ * Puts text on the clipboard, preferring the async API.
+ *
+ * The fallback is not superstition: `navigator.clipboard` rejects in a few
+ * real situations a content script lands in, including a document that is
+ * not the active one and some cross-origin frames. `execCommand` is
+ * deprecated but still accepted in exactly those places.
+ */
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return legacyCopy(text);
+  }
+}
+
+function legacyCopy(text: string): boolean {
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
+  (document.body ?? document.documentElement).append(area);
+
+  // The whole extension is driven by the reader's selection, so losing it
+  // as a side effect of copying would be a visible regression.
+  const selection = document.getSelection();
+  const previous = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+  area.select();
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch {
+    copied = false;
+  }
+  area.remove();
+
+  if (previous && selection) {
+    selection.removeAllRanges();
+    selection.addRange(previous);
+  }
+  return copied;
+}
+
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
@@ -181,6 +254,9 @@ export class CardView {
   #title: HTMLElement | undefined;
   #intent: HTMLElement | undefined;
   #engaged = false;
+  /** The card on screen. Held so it can be copied without asking for it again. */
+  #current: Card | undefined;
+  #actionButtons = new Map<ExportFormat, HTMLButtonElement>();
 
   constructor(private readonly callbacks: CardViewCallbacks) {}
 
@@ -303,6 +379,8 @@ export class CardView {
   renderPending(query: string): void {
     this.#ensure();
     if (!this.#title || !this.#body || !this.#intent || !this.#footer) return;
+    this.#current = undefined;
+    this.#actionButtons.clear();
     this.#title.textContent = query;
     this.#intent.textContent = '';
     this.#footer.textContent = '';
@@ -319,6 +397,7 @@ export class CardView {
     this.#ensure();
     if (!this.#title || !this.#body || !this.#intent || !this.#footer) return;
 
+    this.#current = card;
     this.#title.textContent = card.query;
     this.#intent.textContent = card.intent;
 
@@ -327,7 +406,10 @@ export class CardView {
       const section = this.#renderSlot(card, id);
       if (section) sections.push(section);
     }
+    // Offered as soon as there is anything to take, not only once every
+    // provider has settled — what the reader can see is what they can copy.
     if (sections.length === 0) sections.push(this.#skeletonSection());
+    else sections.push(this.#actionsSection());
     this.#body.replaceChildren(...sections);
 
     const sources = card.sources.filter((s) => s !== 'links');
@@ -335,6 +417,64 @@ export class CardView {
       el('span', undefined, sources.length ? `Sources: ${sources.join(', ')}` : 'Looking…'),
       el('span', undefined, card.done ? `${card.elapsedMs} ms` : ''),
     );
+  }
+
+  /**
+   * The copy row, at the foot of the body.
+   *
+   * It reads as one more section rather than as a toolbar, because that is
+   * what it is: the last thing on the card, in the same shape as the "Look
+   * up in" links directly above it.
+   */
+  #actionsSection(): HTMLElement {
+    this.#actionButtons.clear();
+    const section = el('section');
+    const chips = el('div', 'chips');
+
+    for (const { format, label, hint } of FORMATS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chip';
+      button.textContent = label;
+      button.title = hint;
+      button.setAttribute('aria-label', hint);
+      button.addEventListener('click', () => void this.copyCurrent(format));
+      this.#actionButtons.set(format, button);
+      chips.append(button);
+    }
+
+    section.append(el('div', 'label', 'Copy'), chips);
+    return section;
+  }
+
+  /**
+   * Copies the card on screen. Returns false when there was nothing to copy
+   * or the clipboard refused, so a caller can tell the two apart from silence.
+   */
+  async copyCurrent(format: ExportFormat): Promise<boolean> {
+    const card = this.#current;
+    if (!card) return false;
+    this.#engage();
+
+    const copied = await writeClipboard(formatCard(card, format, exportContext()));
+    this.#flash(format, copied);
+    return copied;
+  }
+
+  /** Says what happened on the button that did it, then puts its name back. */
+  #flash(format: ExportFormat, copied: boolean): void {
+    const button = this.#actionButtons.get(format);
+    const name = FORMATS.find((f) => f.format === format)?.label;
+    if (!button || !name) return;
+
+    button.textContent = copied ? 'Copied' : 'Failed';
+    button.dataset.state = copied ? 'done' : 'failed';
+    setTimeout(() => {
+      // The card may have been re-rendered in the meantime, which replaces
+      // the button; touching the detached one is harmless.
+      button.textContent = name;
+      delete button.dataset.state;
+    }, FEEDBACK_MS);
   }
 
   #renderSlot(card: Card, id: SlotId): HTMLElement | undefined {

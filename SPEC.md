@@ -248,6 +248,36 @@ question:
   tag wiki opening are often word for word identical; printed as both the
   gloss and the summary it reads as a bug.
 
+### 8.1 Taking the card away
+
+The card copies itself in three shapes: plain text, Markdown, and a
+tab-separated Anki note. All three come from one reading of the slots, so
+one format cannot quietly drift from the others as slots are added.
+
+Two rules decide what a copy contains:
+
+- **What is copied is what is shown.** The same slots in the same order,
+  the same caps, and the same suppressions — a summary already folded into
+  the entity block is not repeated in the copy either. A copy holding more
+  or less than the card did is worse than no copy button, because nothing
+  would prompt the reader to check it.
+- **A copy carries its provenance.** The sources, the reference URL of
+  whichever source supplied the prose, and the page the lookup was made on.
+  A note that cannot be traced back is worth much less a month later.
+
+The Anki shape uses Anki's own file headers — `#separator:Tab`,
+`#html:true`, `#tags:quick-lookup`, supported from 2.1.54 — so it imports
+without touching the options dialog. The first field is the query, which is
+also Anki's duplicate key, so looking a word up twice updates the note
+rather than adding a second one.
+
+The card never takes focus, so its buttons cannot be reached by tabbing.
+`Alt+C` copies the Markdown shape while the card is open. Alt rather than
+the configured trigger modifier, which may be set to ctrl or meta and is
+already spoken for by the copy-cancels-the-card guard.
+
+Nothing is sent anywhere. The clipboard is the only destination.
+
 ## 9. Sources
 
 More than one source per job. Backups are expected, and mixing produces a

@@ -78,6 +78,16 @@ Per site, or globally, the trigger can be changed to a handle, to
 require a modifier, or to nothing at all. The toolbar popup switches the
 current site without opening settings.
 
+## Keeping what you find
+
+Every card copies itself, from the row at its foot: as plain text, as
+Markdown for notes, or as a tab-separated Anki note that imports without
+touching Anki's options dialog. `Alt+C` takes the Markdown version without
+reaching for the mouse.
+
+What you copy is what you see, plus the sources, the reference link and the
+page you were on. It goes to the clipboard and nowhere else.
+
 ## Permissions
 
 | Permission | Why |
@@ -93,6 +103,8 @@ current site without opening settings.
 - No account, no API key, no analytics, no remote code.
 - Selected text is sent only to the data source being queried, and only
   when a lookup was asked for.
+- A copied card carries the URL of the page you were on, so the note can
+  be traced back later. It reaches the clipboard and nothing else.
 - One setting, off by default, sends the selection to a translation
   service for machines whose browser has no translator of its own. It is
   the only thing here that sends your text somewhere it was not already

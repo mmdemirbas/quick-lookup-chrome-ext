@@ -219,6 +219,17 @@ document.addEventListener(
 document.addEventListener(
   'keydown',
   (event) => {
+    // Copying the open card, for readers who never touch the mouse. The
+    // card deliberately never takes focus, so its buttons cannot be tabbed
+    // to and this is the only keyboard route to them. Alt is used rather
+    // than the configured modifier because that may be set to ctrl or meta,
+    // which the guard below owns. `code` rather than `key`, because Alt+C
+    // composes to "ç" on a Mac.
+    if (card.isOpen && event.altKey && !event.metaKey && !event.ctrlKey && event.code === 'KeyC') {
+      event.preventDefault();
+      void card.copyCurrent('markdown');
+      return;
+    }
     // Guard two: copying is a different intention from looking up.
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
       cancelDwell();
