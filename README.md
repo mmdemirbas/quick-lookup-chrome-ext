@@ -86,13 +86,17 @@ current site without opening settings.
 | `contextMenus` | Right-click lookup on a selection |
 | `activeTab` | Reading the selection when triggered by the shortcut |
 | `<all_urls>` content script | The selection handle must be able to appear on any page. The always-on script only listens for selection changes; everything else is loaded on first use |
-| Ten host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Wikidata, Wikimedia images, Stack Exchange, npm, PyPI, crates.io and MDN. Each is listed with its reason in `manifest.config.js`. The last five are asked only for technical terms, and the registries only on a page about that ecosystem |
+| Twelve host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Wikidata, Wikimedia images, Stack Exchange, npm, PyPI, crates.io, MDN and MyMemory. Each is listed with its reason in `manifest.config.js`. Stack Exchange, the registries and MDN are asked only for technical terms, the registries only on a page about that ecosystem, and MyMemory only if you switch it on |
 
 ## Privacy
 
 - No account, no API key, no analytics, no remote code.
 - Selected text is sent only to the data source being queried, and only
   when a lookup was asked for.
+- One setting, off by default, sends the selection to a translation
+  service for machines whose browser has no translator of its own. It is
+  the only thing here that sends your text somewhere it was not already
+  going, and the card names the service that answered.
 - Translation and ranking run on the device when the browser provides a
   model, and are skipped when it does not.
 - Everything stored stays local. Preferences sync; the cache does not.

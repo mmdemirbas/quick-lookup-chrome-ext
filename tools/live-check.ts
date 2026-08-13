@@ -20,6 +20,7 @@ import { stackExchangeProvider } from '../src/core/providers/stackexchange.ts';
 import { registryProvider } from '../src/core/providers/registry.ts';
 import { mdnProvider } from '../src/core/providers/mdn.ts';
 import { findDefinitions } from '../src/core/page-definition.ts';
+import { translateOnline } from '../src/core/online-translate.ts';
 import type { Card, HttpClient, PageContext } from '../src/core/types.ts';
 
 const UA = 'QuickLookup/0.2.0 (https://github.com/mmdemirbas/quick-lookup-chrome-ext)';
@@ -311,6 +312,24 @@ for (const testCase of CASES) {
       `     entity: ${entity.title} — ${entity.description ?? '(no description)'}` +
         ` image=${entity.imageUrl ? 'yes' : 'no'}`,
     );
+  }
+}
+
+// The online translator is not a provider — it runs after the sources
+// settle, and only when switched on — so it needs its own check. Two short
+// strings, because the allowance is counted in characters.
+console.log('\nOnline translator (only used when enabled in settings)');
+for (const text of ['ephemeral', 'A manifest is a metadata file.']) {
+  const result = await translateOnline(http, {
+    text,
+    sourceLanguage: 'en',
+    targetLanguage: 'tr',
+  });
+  if (result) {
+    console.log(`  ok   "${text}" -> "${result.text}" [${result.source}]`);
+  } else {
+    console.log(`  skip "${text}" — no translation returned`);
+    skips++;
   }
 }
 

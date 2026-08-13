@@ -263,6 +263,7 @@ richer answer than any single source.
 | Stack Overflow tag wikis | Definitions of programming terms | 300/day/IP without a key. Technical intent only |
 | npm, PyPI, crates.io | Package version, licence, description | One registry per lookup, chosen by the page |
 | MDN | Web platform reference | Site search, not a published API. Web and npm pages only |
+| MyMemory | Translation, when the browser has none | Off by default. 5,000 chars/day, 50,000 with an address |
 
 Rules for every source:
 
@@ -286,7 +287,26 @@ The same signal widens intent routing: an article about React on a personal
 blog is a technical page, and no list of developer hosts will ever contain
 the blogs where most reading happens.
 
-### 9.2 Not built, and why
+### 9.2 Three ways to translate, in order
+
+No single one of these works everywhere, so all three ship and the card
+takes the best available.
+
+| Tier | Where it runs | Coverage | Cost |
+|---|---|---|---|
+| Dictionary head-words | The dictionary request already being made | Partial — Turkish exists for roughly a third of words tried | None |
+| On-device translator | The device | Broad | A flag in Brave, nothing in Chrome, plus a one-time download |
+| MyMemory | A third party | Broad | Off by default. The selection leaves the device |
+
+The first two are not competitors. A translator renders the selection; a
+dictionary gives the head-word for *this sense*, curated, in dictionary
+order. The card shows both when both exist — measured on `ephemeral`, the
+dictionary says "efemera" and the translator says "geçici".
+
+Only the third changes where the selection goes, so it is the only one
+behind a switch, and the switch is off until the reader turns it on.
+
+### 9.3 Not built, and why
 
 - **Wikidata structured facts.** The only route that batches properties with
   their labels resolved is the SPARQL endpoint, measured at 10.7 s — an
@@ -339,6 +359,10 @@ Clear.
 - Every value from a source is inserted as text, never as markup.
 - Only hosts listed in the manifest are contacted.
 - No analytics.
+- One setting, off by default, sends the selection to a translation service.
+  It is the only thing that sends the reader's text anywhere it was not
+  already going to answer a lookup, so it says so where it is switched on,
+  and the card names the service that answered.
 
 ## 13. Quality gates
 

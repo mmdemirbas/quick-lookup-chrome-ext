@@ -18,6 +18,8 @@ const fields = {
   inEditable: $<HTMLInputElement>('inEditable'),
   showGloss: $<HTMLInputElement>('showGloss'),
   glossLanguage: $<HTMLSelectElement>('glossLanguage'),
+  onlineTranslation: $<HTMLInputElement>('onlineTranslation'),
+  translationEmail: $<HTMLInputElement>('translationEmail'),
 };
 
 let settings: Settings = DEFAULT_SETTINGS;
@@ -31,6 +33,8 @@ function fill(next: Settings): void {
   fields.inEditable.checked = next.trigger.inEditable;
   fields.showGloss.checked = next.appearance.showGloss;
   fields.glossLanguage.value = next.appearance.glossLanguage;
+  fields.onlineTranslation.checked = next.appearance.onlineTranslation;
+  fields.translationEmail.value = next.appearance.translationEmail;
   renderSites();
 }
 
@@ -49,6 +53,8 @@ function collect(): Settings {
       ...settings.appearance,
       showGloss: fields.showGloss.checked,
       glossLanguage: fields.glossLanguage.value,
+      onlineTranslation: fields.onlineTranslation.checked,
+      translationEmail: fields.translationEmail.value.trim(),
     },
   });
 }

@@ -89,6 +89,15 @@ async function checkTranslationDownload(context: BrowserContext, id: string): Pr
     offered ? ((await label.textContent()) ?? '') : 'no button appeared',
   );
 
+  // Sending the selection to a third party is the one thing here that must
+  // never happen because a default drifted, so the default is asserted.
+  const online = page.locator('#onlineTranslation');
+  record(
+    'sending text to an online translator is off until asked for',
+    (await online.isChecked()) === false,
+    'onlineTranslation default',
+  );
+
   if (offered) {
     await button.click();
     const ready = await label

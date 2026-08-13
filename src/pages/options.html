@@ -145,6 +145,23 @@
           <input id="showGloss" type="checkbox" />
         </div>
         <div class="row">
+          <label for="onlineTranslation">
+            Use an online translator when this browser has none
+            <span class="hint">
+              Off by default. This is the only setting that sends the selected text off
+              the device — to MyMemory, which allows 5,000 characters a day.
+            </span>
+          </label>
+          <input id="onlineTranslation" type="checkbox" />
+        </div>
+        <div class="row">
+          <label for="translationEmail">
+            Contact address for the translator
+            <span class="hint">Optional. Raises the allowance to 50,000 characters a day.</span>
+          </label>
+          <input id="translationEmail" type="email" placeholder="you@example.com" />
+        </div>
+        <div class="row">
           <label for="glossLanguage">Translate into</label>
           <select id="glossLanguage">
             <option value="tr">Turkish</option>

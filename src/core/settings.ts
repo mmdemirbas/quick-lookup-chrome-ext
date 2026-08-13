@@ -37,6 +37,19 @@ export type Settings = {
     /** Show a translation of the lead sense into `glossLanguage`. */
     showGloss: boolean;
     glossLanguage: string;
+    /**
+     * Allow an online translator when the browser has none.
+     *
+     * Off by default, and the only setting that changes where the selection
+     * goes: everything else is answered locally or by looking up a word the
+     * reader chose. Turning it on sends the sentence to a third party.
+     */
+    onlineTranslation: boolean;
+    /**
+     * Optional contact address sent with those requests. The service raises
+     * the daily allowance tenfold in exchange for one.
+     */
+    translationEmail: string;
   };
   limits: {
     /** Whole-lookup budget. Individual providers have their own deadlines. */
@@ -61,6 +74,8 @@ export const DEFAULT_SETTINGS: Settings = {
     theme: 'auto',
     showGloss: true,
     glossLanguage: 'tr',
+    onlineTranslation: false,
+    translationEmail: '',
   },
   limits: {
     timeoutMs: 4000,

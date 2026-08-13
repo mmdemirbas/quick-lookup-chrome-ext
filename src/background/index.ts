@@ -23,6 +23,7 @@ import { mdnProvider } from '../core/providers/mdn.ts';
 import { ext } from '../platform/browser.ts';
 import { createHttpClient } from '../platform/http.ts';
 import { detectCapabilities, translate, uiLanguage } from '../platform/ai.ts';
+import { translateOnline } from '../core/online-translate.ts';
 import type { StatusResponse, ToBackground } from '../shared/messages.ts';
 
 const VERSION = ext.runtime.getManifest().version;
@@ -106,7 +107,23 @@ async function addGloss(card: Card, targetLanguage: string): Promise<boolean> {
       : card.query;
   if (!subject) return false;
 
-  const translated = await translate(subject, 'en', targetLanguage);
+  // On-device first, always: it is free, private and needs no allowance.
+  // The online service is only asked when the browser has nothing and the
+  // reader has said the selection may leave the device.
+  const onDevice = await translate(subject, 'en', targetLanguage);
+  const online =
+    onDevice || !settings.appearance.onlineTranslation
+      ? undefined
+      : await translateOnline(http, {
+          text: subject,
+          sourceLanguage: 'en',
+          targetLanguage,
+          ...(settings.appearance.translationEmail
+            ? { email: settings.appearance.translationEmail }
+            : {}),
+        });
+
+  const translated = onDevice ?? online?.text;
   if (!translated) return false;
 
   card.slots.translation = {
@@ -115,7 +132,7 @@ async function addGloss(card: Card, targetLanguage: string): Promise<boolean> {
     data: {
       text: translated,
       lang: targetLanguage,
-      source: 'on-device',
+      source: onDevice ? 'on-device' : (online?.source ?? 'online'),
       // Dictionary head-words are a different answer, not a worse one, so a
       // translator arriving later must not discard them.
       ...(existing?.equivalents?.length ? { equivalents: existing.equivalents } : {}),
