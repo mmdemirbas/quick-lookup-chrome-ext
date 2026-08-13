@@ -389,6 +389,53 @@ test('stack exchange returns nothing when no candidate spelling is a tag', async
   );
 });
 
+test('dictionary head-words are collected per sense, and only when asked for', async () => {
+  const payload = {
+    word: 'ephemeral',
+    entries: [
+      {
+        language: { code: 'en' },
+        partOfSpeech: 'adjective',
+        senses: [
+          {
+            definition: 'Lasting for a short period of time.',
+            translations: [
+              { language: { code: 'tr' }, word: 'geçici' },
+              { language: { code: 'hy' }, word: 'վաղանցիկ' },
+              { language: { code: 'tr' }, word: 'gelip geçici' },
+            ],
+          },
+          {
+            definition: 'Existing for only one day.',
+            translations: [{ language: { code: 'tr' }, word: 'geçici' }],
+          },
+        ],
+      },
+    ],
+  };
+
+  const asked = stubHttp([['freedictionaryapi.com', payload]]);
+  const result = await freeDictionaryProvider.run(
+    { ...request, glossLanguage: 'tr' },
+    context(asked),
+  );
+  assert.match(asked.calls[0] ?? '', /\?translations=true$/);
+  assert.deepEqual(
+    result?.slots.translation?.equivalents?.map((e) => e.word),
+    ['geçici', 'gelip geçici'],
+    'other languages are ignored and a repeat across senses collapses',
+  );
+  // Something readable even when no translator exists on the machine.
+  assert.equal(result?.slots.translation?.text, 'geçici, gelip geçici');
+
+  // Translations roughly triple the payload, so an unasked-for one is not
+  // paid for at all.
+  const unasked = stubHttp([['freedictionaryapi.com', payload]]);
+  const plain = await freeDictionaryProvider.run(request, context(unasked));
+  assert.doesNotMatch(unasked.calls[0] ?? '', /translations/);
+  assert.equal(plain?.slots.translation, undefined);
+});
+
 const NPM_PAGE = {
   host: 'blog.example.com',
   title: 'Bundling a React app',

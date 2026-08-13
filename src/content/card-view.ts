@@ -401,10 +401,23 @@ export class CardView {
       }
 
       case 'translation': {
-        const t = slot.data as { text: string; lang: string };
+        const t = slot.data as {
+          text: string;
+          lang: string;
+          equivalents?: Array<{ word: string }>;
+        };
         const row = el('div', 'translation');
         row.append(el('span', 'lang', t.lang), document.createTextNode(t.text));
         section.append(row);
+
+        // Dictionary head-words, when the translated line is not simply a
+        // list of them already.
+        const words = t.equivalents ?? [];
+        if (words.length > 0 && t.text !== words.map((w) => w.word).join(', ')) {
+          const chips = el('div', 'chips');
+          for (const word of words) chips.append(el('span', 'chip', word.word));
+          section.append(chips);
+        }
         return section;
       }
 

@@ -55,6 +55,11 @@ export type LookupRequest = {
   text: string;
   uiLang: string;
   page: PageContext;
+  /**
+   * Language to translate into, when the reader wants one. Absent means no
+   * translation was asked for, and sources must not pay for one.
+   */
+  glossLanguage?: string;
 };
 
 export type Pronunciation = {
@@ -102,7 +107,18 @@ export type SlotData = {
   gloss: string;
   senses: Sense[];
   related: Related[];
-  translation: { text: string; lang: string; source: string };
+  /**
+   * `text` renders the selection in the target language. `equivalents` are
+   * dictionary head-words for it — a different kind of answer, curated per
+   * sense rather than produced by a translator, so the two are shown
+   * together rather than one standing in for the other.
+   */
+  translation: {
+    text: string;
+    lang: string;
+    source: string;
+    equivalents?: Array<{ word: string; source: string }>;
+  };
   entity: EntitySummary;
   facts: Array<{ label: string; value: string; source: string }>;
   extract: { text: string; source: string; url?: string };

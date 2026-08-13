@@ -94,14 +94,32 @@ function send(tabId: number, card: Card): void {
  */
 async function addGloss(card: Card, targetLanguage: string): Promise<boolean> {
   if (!settings.appearance.showGloss) return false;
-  const lead = card.slots.gloss?.data ?? card.slots.senses?.data?.[0]?.definition;
-  if (!lead) return false;
-  const translated = await translate(lead, 'en', targetLanguage);
+
+  // What is worth translating differs by what was selected. For a single
+  // word the definition carries far more than the word alone would, and the
+  // dictionary already supplied the word itself. For anything longer the
+  // selection is the thing the reader wants rendered.
+  const existing = card.slots.translation?.data;
+  const subject =
+    card.intent === 'word'
+      ? (card.slots.gloss?.data ?? card.slots.senses?.data?.[0]?.definition)
+      : card.query;
+  if (!subject) return false;
+
+  const translated = await translate(subject, 'en', targetLanguage);
   if (!translated) return false;
+
   card.slots.translation = {
     id: 'translation',
     state: 'filled',
-    data: { text: translated, lang: targetLanguage, source: 'on-device' },
+    data: {
+      text: translated,
+      lang: targetLanguage,
+      source: 'on-device',
+      // Dictionary head-words are a different answer, not a worse one, so a
+      // translator arriving later must not discard them.
+      ...(existing?.equivalents?.length ? { equivalents: existing.equivalents } : {}),
+    },
   };
   if (!card.order.includes('translation')) card.order.push('translation');
   return true;
@@ -142,7 +160,15 @@ async function handleLookup(
 
   const budget = setTimeout(() => controller.abort('budget'), settings.limits.timeoutMs);
   try {
-    const request: LookupRequest = { id: requestId, text: trimmed, uiLang: lang, page };
+    const request: LookupRequest = {
+      id: requestId,
+      text: trimmed,
+      uiLang: lang,
+      page,
+      ...(settings.appearance.showGloss
+        ? { glossLanguage: settings.appearance.glossLanguage }
+        : {}),
+    };
     const card = await runLookup(
       request,
       decision,

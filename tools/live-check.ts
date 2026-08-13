@@ -54,6 +54,19 @@ type Case = {
    * which no fixture can do.
    */
   readPage?: string;
+  /** Ask sources for head-words in this language, as the settings would. */
+  glossLanguage?: string;
+  /**
+   * Sources the assertion depends on; at least one must have answered.
+   *
+   * Providers abandon a source that misses its deadline and leave the slot
+   * empty, which is correct behaviour and indistinguishable from a source
+   * that answered wrongly — unless the check knows which source it is
+   * asking about. Measured on a slow link, npm returned 200 in 132 ms,
+   * 2315 ms and 5017 ms in three consecutive rounds, so this is the
+   * difference between a useful signal and noise.
+   */
+  needs?: string[];
   /** What must be true for this case to count as working. */
   expect: (card: Card) => string | undefined;
 };
@@ -91,6 +104,8 @@ const CASES: Case[] = [
   {
     text: 'ephemeral',
     page: { host: 'en.wikipedia.org', title: 'Reading' },
+    glossLanguage: 'tr',
+    needs: ['free-dictionary', 'wiktionary'],
     expect: (card) =>
       (card.slots.senses?.data?.length ?? 0) >= 2
         ? undefined
@@ -98,6 +113,7 @@ const CASES: Case[] = [
   },
   {
     text: 'planner',
+    needs: ['free-dictionary', 'wiktionary'],
     page: {
       host: 'iceberg.apache.org',
       title: 'Apache Iceberg table specification',
@@ -108,6 +124,7 @@ const CASES: Case[] = [
   },
   {
     text: 'Alan Turing',
+    needs: ['wikipedia'],
     page: { host: 'news.example.com', title: 'Computing history' },
     expect: (card) =>
       card.slots.entity?.data?.title
@@ -119,6 +136,7 @@ const CASES: Case[] = [
     // general article, but with the page topic it resolves to the sense the
     // reader is actually looking at.
     text: 'manifest',
+    needs: ['wikipedia'],
     // Also pins the local definition extractor against real documentation
     // prose, which no fixture can do.
     readPage: 'https://iceberg.apache.org/spec/',
@@ -140,15 +158,16 @@ const CASES: Case[] = [
     // The technical path end to end: a term with a Stack Overflow tag wiki
     // should come back defined by practitioners, not just described.
     text: 'Apache Iceberg',
+    needs: ['stackexchange'],
     page: {
       host: 'iceberg.apache.org',
       title: 'Apache Iceberg',
       topicTerms: ['table', 'format', 'analytics', 'metadata', 'snapshot'],
     },
     expect: (card) =>
-      card.sources.includes('stackexchange')
+      /table format/i.test(card.slots.gloss?.data ?? '')
         ? undefined
-        : 'expected the Stack Overflow tag wiki to define a tagged technical term',
+        : `tag wiki did not define the term (got "${card.slots.gloss?.data ?? 'nothing'}")`,
   },
   {
     // A live guard on the guidance filter. The `kubernetes` tag wiki is
@@ -166,6 +185,7 @@ const CASES: Case[] = [
     // The registry path on an ordinary blog rather than a known dev host:
     // the page's own vocabulary is what routes this to the technical path.
     text: 'react-dom',
+    needs: ['registry'],
     page: {
       host: 'blog.example.com',
       title: 'Rendering a React tree without the framework',
@@ -178,6 +198,7 @@ const CASES: Case[] = [
   },
   {
     text: 'flexbox',
+    needs: ['mdn'],
     page: {
       host: 'developer.mozilla.org',
       title: 'CSS layout',
@@ -189,6 +210,7 @@ const CASES: Case[] = [
 ];
 
 let failures = 0;
+let skips = 0;
 
 for (const testCase of CASES) {
   if (testCase.readPage) {
@@ -206,7 +228,13 @@ for (const testCase of CASES) {
   let firstEvidenceMs = 0;
 
   const card = await runLookup(
-    { id: 'smoke', text: testCase.text, uiLang: 'en', page: testCase.page },
+    {
+      id: 'smoke',
+      text: testCase.text,
+      uiLang: 'en',
+      page: testCase.page,
+      ...(testCase.glossLanguage ? { glossLanguage: testCase.glossLanguage } : {}),
+    },
     decision,
     { http, providers },
     {
@@ -218,9 +246,16 @@ for (const testCase of CASES) {
     },
   );
 
-  const problem = testCase.expect(card);
-  const mark = problem ? 'FAIL' : 'ok  ';
+  // An assertion about what a source returned only means something if that
+  // source returned. Without this a slow link reports as though the
+  // extension were broken, and the signal this check exists to give is
+  // exactly the one that gets lost.
+  const required = testCase.needs ?? [];
+  const skipped = required.length > 0 && !required.some((s) => card.sources.includes(s));
+  const problem = skipped ? undefined : testCase.expect(card);
+  const mark = skipped ? 'skip' : problem ? 'FAIL' : 'ok  ';
   if (problem) failures++;
+  if (skipped) skips++;
 
   console.log(`\n${mark} "${testCase.text}" @ ${testCase.page.host}`);
   console.log(
@@ -230,6 +265,9 @@ for (const testCase of CASES) {
       `  firstEvidence=${firstEvidenceMs || '—'}ms  total=${card.elapsedMs}ms`,
   );
   if (problem) console.log(`     ${problem}`);
+  if (skipped) {
+    console.log(`     none of [${required.join(', ')}] answered in time — nothing to judge`);
+  }
 
   const gloss = card.slots.gloss?.data;
   if (gloss) console.log(`     gloss: ${gloss}`);
@@ -251,6 +289,14 @@ for (const testCase of CASES) {
     console.log(`     on page: ${sentence.slice(0, 110)}`);
   }
 
+  const translation = card.slots.translation?.data;
+  if (translation) {
+    console.log(
+      `     ${translation.lang}: ${translation.text}` +
+        ` [${translation.source}]`,
+    );
+  }
+
   const facts = card.slots.facts?.data ?? [];
   if (facts.length) {
     console.log(`     facts: ${facts.map((f) => `${f.label}=${f.value} (${f.source})`).join('  ')}`);
@@ -268,5 +314,11 @@ for (const testCase of CASES) {
   }
 }
 
-console.log(`\n${failures === 0 ? 'All sources responded as expected.' : `${failures} case(s) failed.`}`);
+const summary =
+  failures > 0
+    ? `${failures} case(s) failed.`
+    : skips > 0
+      ? `Every source that answered behaved as expected. ${skips} case(s) could not be checked.`
+      : 'All sources responded as expected.';
+console.log(`\n${summary}`);
 process.exit(failures === 0 ? 0 : 1);
