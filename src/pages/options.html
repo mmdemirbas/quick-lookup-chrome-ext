@@ -140,7 +140,10 @@
         <div class="row">
           <label for="showGloss">
             Show a translation of the main meaning
-            <span class="hint">Uses the browser's on-device translator. Nothing is sent anywhere.</span>
+            <span class="hint">
+              From the dictionary and, where the browser has one, its own translator.
+              Both run without sending anything anywhere.
+            </span>
           </label>
           <input id="showGloss" type="checkbox" />
         </div>
@@ -177,11 +180,11 @@
 
       <fieldset>
         <legend>On-device model</legend>
-        <div id="status">Checking…</div>
         <div class="row" id="translationRow">
           <label id="translationLabel" for="downloadTranslation">Translation model</label>
           <button id="downloadTranslation" class="secondary" type="button" hidden>Download</button>
         </div>
+        <div id="status">Checking…</div>
       </fieldset>
 
       <fieldset>

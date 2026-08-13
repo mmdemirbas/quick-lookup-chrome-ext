@@ -35,6 +35,7 @@ function fill(next: Settings): void {
   fields.glossLanguage.value = next.appearance.glossLanguage;
   fields.onlineTranslation.checked = next.appearance.onlineTranslation;
   fields.translationEmail.value = next.appearance.translationEmail;
+  fields.translationEmail.disabled = !next.appearance.onlineTranslation;
   renderSites();
 }
 
@@ -129,9 +130,12 @@ function renderStatus(status: StatusResponse): void {
     capabilities.translate && 'translate',
     capabilities.generate && 'rank and phrase',
   ].filter(Boolean);
+  // What the browser *exposes*, which is not the same as what is ready to
+  // use — a translator can be present with no language pair downloaded. The
+  // row above reports the readiness, so this must not claim it.
   headline.textContent = abilities.length
-    ? `Available: ${abilities.join(', ')}.`
-    : 'No on-device model available.';
+    ? `This browser provides: ${abilities.join(', ')}.`
+    : 'This browser provides no on-device model.';
 
   const reason = document.createElement('div');
   reason.textContent = capabilities.reason;
@@ -294,3 +298,10 @@ void ext.runtime.sendMessage({ type: 'QL_GET_STATUS' }).then((status: StatusResp
 // rather than only the page load.
 fields.glossLanguage.addEventListener('change', () => void renderTranslation());
 void renderTranslation();
+
+/** The address only means anything when the online translator is in use. */
+function syncEmailField(): void {
+  fields.translationEmail.disabled = !fields.onlineTranslation.checked;
+}
+fields.onlineTranslation.addEventListener('change', syncEmailField);
+syncEmailField();

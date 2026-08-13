@@ -103,11 +103,15 @@ export async function detectCapabilities(): Promise<Capabilities> {
     translate: Boolean(scope.Translator),
     classify: generate,
     generate,
+    // Only ever about the language model. Translation has its own state,
+    // reported next to the control that can change it, and saying "cannot
+    // run the built-in model" beside "provides: translate" reads as a
+    // contradiction.
     reason: generate
-      ? 'Built-in model available.'
+      ? 'The built-in language model is ready.'
       : model === 'downloadable' || model === 'downloading'
-        ? 'A built-in model is available but not downloaded. Downloads are skipped on metered connections.'
-        : 'This device or browser cannot run the built-in model.',
+        ? 'A language model is available but not downloaded. Downloads are skipped on metered connections.'
+        : 'This device or browser cannot run a built-in language model. Nothing here needs one.',
   };
 }
 
