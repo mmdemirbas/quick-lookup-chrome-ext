@@ -39,6 +39,8 @@ const FIXTURE = `<!doctype html>
 together with their partition values and per-column statistics.</p>
 <p>Readers use the current snapshot, and writers produce a new one on every
 commit. The manifest list is read before planning begins.</p>
+<p id="low" style="position:fixed;bottom:20px;left:24px;margin:0">
+A partition groups data files by a column value.</p>
 </body></html>`;
 
 /**
@@ -108,6 +110,115 @@ async function checkTranslationDownload(context: BrowserContext, id: string): Pr
     record('downloading a language pair reports progress and completes', ready, (await label.textContent()) ?? '');
   }
   await page.close();
+}
+
+/**
+ * The card must stay on screen when the selection is near the foot of the
+ * window — the case that reads as "the bottom half is cut off".
+ *
+ * Measured after the providers have landed, because the defect only appears
+ * once the card has grown past the height it was placed at. Asserting on the
+ * placement code would have proved nothing: the code was correct for the
+ * height it was given.
+ */
+async function checkBottomPlacement(page: import('playwright').Page): Promise<void> {
+  await page.getByText('A partition groups data files').dblclick({ position: { x: 20, y: 8 } });
+
+  const card = page.locator('quick-lookup-card .card');
+  const appeared = await card
+    .waitFor({ state: 'visible', timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!appeared) {
+    record('a selection at the foot of the window opens the card', false, 'never appeared');
+    return;
+  }
+
+  await page.waitForTimeout(2500);
+  const fits = await page.evaluate(() => {
+    const host = document.querySelector('quick-lookup-card');
+    const box = host?.shadowRoot?.querySelector('.card')?.getBoundingClientRect();
+    if (!box) return null;
+    return {
+      top: Math.round(box.top),
+      bottom: Math.round(box.bottom),
+      height: Math.round(box.height),
+      viewport: window.innerHeight,
+    };
+  });
+
+  record(
+    'a card anchored near the foot of the window stays on screen',
+    Boolean(fits && fits.top >= 0 && fits.bottom <= fits.viewport),
+    fits ? `top=${fits.top} bottom=${fits.bottom} height=${fits.height} viewport=${fits.viewport}` : 'no card',
+  );
+
+  // Dragging across the answer is how a reader copies one line out of it.
+  // This must be a real drag: a programmatic `selectNodeContents` succeeds
+  // even when `mousedown` is being cancelled, which is the actual defect.
+  await page.evaluate(() => getSelection()?.removeAllRanges());
+  // Not the first section: one still waiting on its provider is three empty
+  // skeleton bars, and the topmost one sits under the sticky header on a
+  // card tall enough to scroll. Either would fail for the wrong reason.
+  const target = page.locator('quick-lookup-card .body section .label ~ *').first();
+  await target.scrollIntoViewIfNeeded().catch(() => {});
+  const box = await target.boundingBox();
+  if (box) {
+    // Starting well inside the text column, not on the edge: a list indents
+    // its items, so the first few pixels of the box are padding and a drag
+    // beginning there selects nothing even when selection works perfectly.
+    const y = box.y + Math.min(box.height / 2, 24);
+    await page.mouse.move(box.x + 80, y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 260, y + 18, { steps: 12 });
+    await page.mouse.up();
+  }
+  const picked = await page.evaluate(() => getSelection()?.toString() ?? '');
+  record(
+    'text inside the card can be selected with the mouse',
+    picked.trim().length > 0,
+    box ? `"${picked.trim().slice(0, 44)}"` : 'no section to drag across',
+  );
+  record('selecting inside the card does not close it', await card.isVisible());
+
+  await page.keyboard.press('Escape');
+}
+
+/**
+ * A selection long enough to read as a quote gets the handle instead of the
+ * card, and pressing the handle must open the card.
+ *
+ * Worth a browser check rather than a unit test, because what broke it was
+ * event ordering and nothing else: the document's capture-phase
+ * `pointerdown` listener hid the handle before its own `click` could land,
+ * so the button was gone from under the finger. Every unit test of the
+ * decision logic passed the whole time.
+ */
+async function checkHandle(page: import('playwright').Page): Promise<void> {
+  // Triple-click takes the whole paragraph, which is past the word count
+  // where a selection stops reading as a lookup.
+  await page.getByText('A manifest is a metadata file', { exact: false }).click({ clickCount: 3 });
+
+  const handle = page.locator('quick-lookup-handle button');
+  const offered = await handle
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  record('a long selection offers the handle instead of opening', offered);
+  if (!offered) return;
+
+  await handle.click();
+  const card = page.locator('quick-lookup-card .card');
+  const opened = await card
+    .waitFor({ state: 'visible', timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+  const query = opened
+    ? ((await page.locator('quick-lookup-card header .query').textContent()) ?? '')
+    : '';
+  record('pressing the handle opens the card', opened, query.slice(0, 40));
+
+  await page.keyboard.press('Escape');
 }
 
 type Check = { name: string; ok: boolean; detail: string };
@@ -233,6 +344,8 @@ try {
       .then(() => true)
       .catch(() => false);
     record('Escape closes the card', closed);
+    if (closed) await checkBottomPlacement(page);
+    if (closed) await checkHandle(page);
   }
 
   await checkTranslationDownload(context, worker.url().split('/')[2] ?? '');

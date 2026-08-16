@@ -5,8 +5,9 @@
  *
  * - It never moves the page. The host is fixed-position and carries
  *   `contain`, so nothing it does can reflow the document.
- * - It never covers the selection. Placement prefers below the selected
- *   rect and flips above only when there is no room.
+ * - It never covers the selection, and never runs off the screen. Placement
+ *   prefers below the selected rect, flips above when there is more room
+ *   there, and caps its own height to the space it was given.
  * - It never takes focus. The page keeps the caret and the keyboard.
  *
  * Every value from a source is inserted with `textContent`. No source
@@ -18,6 +19,13 @@ import { formatCard, type ExportContext, type ExportFormat } from '../core/expor
 const GAP = 10;
 const MARGIN = 8;
 const WIDTH = 380;
+
+/**
+ * The least the card may be squeezed to before it stops trying to avoid the
+ * selection. Below this it is a scrollbar with a border, so overlapping the
+ * selected line is the better trade.
+ */
+const MIN_HEIGHT = 150;
 
 const STYLE = `
 :host {
@@ -38,6 +46,9 @@ const STYLE = `
   --warn: #b45309;
   --shadow: 0 8px 28px rgba(16, 16, 32, .16), 0 1px 3px rgba(16, 16, 32, .1);
   width: ${WIDTH}px;
+  /* Replaced inline by the placer with the room actually available. This
+     value only applies when the card is rendered without an anchor, which
+     is what the preview harness does. */
   max-height: 60vh;
   overflow: hidden auto;
   overscroll-behavior: contain;
@@ -70,7 +81,10 @@ header {
   padding: 9px 10px 9px 13px;
   border-bottom: 1px solid var(--border);
   position: sticky; top: 0; background: var(--bg); z-index: 1;
+  user-select: none;
 }
+/* Everything below the header is an answer, and answers get copied out. */
+.body, footer { user-select: text; }
 .query { font-weight: 600; font-size: 14px; flex: 1; overflow-wrap: anywhere; }
 .intent {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
@@ -254,6 +268,8 @@ export class CardView {
   #title: HTMLElement | undefined;
   #intent: HTMLElement | undefined;
   #engaged = false;
+  /** The selection the card is placed against, kept so it can be re-placed. */
+  #anchor: DOMRect | undefined;
   /** The card on screen. Held so it can be copied without asking for it again. */
   #current: Card | undefined;
   #actionButtons = new Map<ExportFormat, HTMLButtonElement>();
@@ -307,8 +323,12 @@ export class CardView {
     const footer = el('footer');
     card.append(header, body, footer);
 
-    // The card must never steal the caret or scroll the page beneath it.
-    card.addEventListener('mousedown', (event) => event.preventDefault());
+    // The header is chrome, so pressing it must not disturb the reader's
+    // selection. The body and footer are content, and content is selectable:
+    // an answer you cannot drag across is an answer you have to retype.
+    // Selections inside the card are ignored by the trigger, so this cannot
+    // start a second lookup — that guard lives in `core/trigger.ts`.
+    header.addEventListener('mousedown', (event) => event.preventDefault());
     card.addEventListener('pointerdown', () => this.#engage());
     card.addEventListener('wheel', (event) => event.stopPropagation(), { passive: true });
 
@@ -330,43 +350,67 @@ export class CardView {
     this.callbacks.onEngage();
   }
 
-  /**
-   * Places the card near a selection without covering it.
-   *
-   * Below is preferred because reading continues downward; flipping above
-   * happens only when the space below is too small for the card.
-   */
+  /** Anchors the card to a selection and shows it. */
   showAt(rect: DOMRect): void {
     this.#ensure();
+    if (!this.#host) return;
+    this.#anchor = rect;
+    this.#host.style.display = 'block';
+    this.#place();
+  }
+
+  /**
+   * Places the card against its anchor and sizes it to the space there.
+   *
+   * Run again after every render, which is the part that was missing. The
+   * card is placed while it is still a three-line skeleton, because showing
+   * something immediately is the whole point of the skeleton — so a card
+   * anchored 200px from the foot of the window was measured at 60px, given a
+   * top that fitted, and then grew to 500px once the providers answered.
+   * Everything past the window edge was unreachable: the card scrolls
+   * internally, so the page scrollbar could not bring it back either.
+   *
+   * Placing again on each render also keeps the card still. Position and
+   * height only change when the space the card needs has actually changed.
+   */
+  #place(): void {
     const host = this.#host;
     const card = this.#card;
-    if (!host || !card) return;
+    const anchor = this.#anchor;
+    if (!host || !card || !anchor || host.style.display === 'none') return;
 
-    host.style.display = 'block';
-    host.style.visibility = 'hidden';
-    host.style.left = '0px';
-    host.style.top = '0px';
+    // Measured unconstrained, so the choice is made on the height the card
+    // wants rather than on the cap it was last given.
+    card.style.maxHeight = '';
+    const wanted = card.getBoundingClientRect().height || MIN_HEIGHT;
 
-    const height = card.getBoundingClientRect().height || 200;
-    const below = window.innerHeight - rect.bottom - GAP;
-    const placeAbove = below < Math.min(height, 220) && rect.top > below;
+    const roomBelow = window.innerHeight - anchor.bottom - GAP - MARGIN;
+    const roomAbove = anchor.top - GAP - MARGIN;
 
-    const top = placeAbove
-      ? Math.max(MARGIN, rect.top - height - GAP)
-      : Math.min(window.innerHeight - height - MARGIN, rect.bottom + GAP);
+    // Below is preferred because reading continues downward. Above wins only
+    // when it can show more of the card than below can.
+    const goBelow = wanted <= roomBelow || roomBelow >= roomAbove;
+    const room = Math.max(MIN_HEIGHT, goBelow ? roomBelow : roomAbove);
+    const height = Math.min(wanted, room, window.innerHeight - 2 * MARGIN);
+
+    card.style.maxHeight = `${Math.round(height)}px`;
+
+    const top = goBelow
+      ? Math.min(anchor.bottom + GAP, window.innerHeight - height - MARGIN)
+      : Math.max(MARGIN, anchor.top - GAP - height);
 
     const left = Math.min(
-      Math.max(MARGIN, rect.left),
+      Math.max(MARGIN, anchor.left),
       Math.max(MARGIN, window.innerWidth - WIDTH - MARGIN),
     );
 
     host.style.left = `${Math.round(left)}px`;
     host.style.top = `${Math.round(Math.max(MARGIN, top))}px`;
-    host.style.visibility = 'visible';
   }
 
   hide(): void {
     if (this.#host) this.#host.style.display = 'none';
+    this.#anchor = undefined;
     this.#engaged = false;
   }
 
@@ -385,6 +429,7 @@ export class CardView {
     this.#intent.textContent = '';
     this.#footer.textContent = '';
     this.#body.replaceChildren(this.#skeletonSection());
+    this.#place();
   }
 
   #skeletonSection(): HTMLElement {
@@ -417,6 +462,10 @@ export class CardView {
       el('span', undefined, sources.length ? `Sources: ${sources.join(', ')}` : 'Looking…'),
       el('span', undefined, card.done ? `${card.elapsedMs} ms` : ''),
     );
+
+    // The card has just changed height. Placing it again is what keeps a
+    // card anchored near the foot of the window on the screen.
+    this.#place();
   }
 
   /**
