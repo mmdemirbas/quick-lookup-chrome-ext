@@ -130,6 +130,14 @@ reaching for the mouse.
 What you copy is what you see, plus the sources, the reference link and the
 page you were on. It goes to the clipboard and nowhere else.
 
+Every card also carries the sentence you met the word in, with the word
+marked. That is what lets a card that has been dragged aside — or a note read
+weeks later — still say why the word was worth looking up.
+
+Lookups are kept in the toolbar popup. Starring one makes it survive both the
+size cap and Clear, which is what turns the list from a log into something
+worth coming back to.
+
 ## Permissions
 
 | Permission | Why |
