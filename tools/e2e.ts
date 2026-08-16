@@ -20,6 +20,7 @@ import { rm } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { markFor } from '../src/core/marks.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const EXTENSION = path.join(here, '..', 'dist', 'chromium');
@@ -554,12 +555,13 @@ async function checkDictionaryPack(
   const text = shown ? ((await translation.textContent()) ?? '') : 'no translation slot';
   // The sources line says whether the pack was consulted at all, which is the
   // difference between "not installed", "not reached" and "outranked".
-  const sources =
-    (await reader.locator('quick-lookup-card footer span').first().textContent()) ?? '';
+  const sources = await reader
+    .locator('quick-lookup-card footer .source > span:not(.mark)')
+    .allTextContents();
   record(
     'an installed pack answers a word on a real page, offline',
     /bildirge/.test(text) && /yük listesi/.test(text),
-    `${text.replace(/\s+/g, ' ').trim().slice(0, 60)} [${sources.trim()}]`,
+    `${text.replace(/\s+/g, ' ').trim().slice(0, 60)} [${sources.join(', ')}]`,
   );
   await reader.close();
 
@@ -717,8 +719,59 @@ try {
       bar.cells === 5 && bar.on >= 1 && bar.on <= 5 && bar.label.length > 0,
       `${bar.on}/${bar.cells} — ${bar.label || 'no reading'}`,
     );
-    const sources = (await page.locator('quick-lookup-card footer span').first().textContent()) ?? '';
-    console.log(`\n  ${sources.trim()}`);
+    // The mark each link and each source wears. Three things can go wrong and
+    // only the browser can tell: the mark can be missing, it can land on the
+    // wrong site, or its colour can fail to resolve — a custom property that
+    // never arrives leaves the tile transparent while the letter still shows,
+    // which reads as finished from the outside.
+    const marks = await page.evaluate(() => {
+      const root = document.querySelector('quick-lookup-card')?.shadowRoot;
+      const read = (node: Element | null | undefined) =>
+        node
+          ? {
+              letter: node.textContent ?? '',
+              hue: (node as HTMLElement).style.getPropertyValue('--hue'),
+              paint: getComputedStyle(node).backgroundColor,
+            }
+          : undefined;
+      return {
+        links: [...(root?.querySelectorAll('a.chip') ?? [])].map((chip) => ({
+          href: (chip as HTMLAnchorElement).href,
+          ...(read(chip.querySelector('.mark')) ?? { letter: '', hue: '', paint: '' }),
+        })),
+        sources: [...(root?.querySelectorAll('.source .mark') ?? [])].map(
+          (node) => read(node) ?? { letter: '', hue: '', paint: '' },
+        ),
+      };
+    });
+    const painted = (paint: string) => paint !== '' && !/rgba\(0, 0, 0, 0\)/.test(paint);
+    // Which site a link points at is decided by its URL here and by its id in
+    // the card, so agreeing is evidence rather than a tautology.
+    const misplaced = marks.links.filter(
+      (link) => markFor('', link.href).letter !== link.letter,
+    );
+    const hues = new Set(marks.links.map((link) => link.hue));
+    record(
+      'every link wears its own site mark',
+      marks.links.length >= 3 &&
+        marks.links.every((link) => link.letter.length > 0 && painted(link.paint)) &&
+        misplaced.length === 0 &&
+        hues.size > 1,
+      misplaced.length > 0
+        ? `${misplaced[0]?.letter} on ${misplaced[0]?.href}`
+        : marks.links.map((link) => `${link.letter}=${link.hue}`).join(' '),
+    );
+    record(
+      'the sources say which site answered, in that site’s colour',
+      marks.sources.length > 0 &&
+        marks.sources.every((mark) => mark.letter.length > 0 && painted(mark.paint)),
+      marks.sources.map((mark) => mark.letter).join(' ') || 'no source marks',
+    );
+
+    const answered = await page
+      .locator('quick-lookup-card footer .source > span:not(.mark)')
+      .allTextContents();
+    console.log(`\n  Sources: ${answered.join(', ')}`);
 
     // Copying is checked through the real clipboard rather than by asserting
     // on the string the formatter returned — the unit tests already cover the

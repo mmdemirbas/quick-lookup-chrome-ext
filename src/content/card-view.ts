@@ -17,6 +17,7 @@ import type { Card, Related, Sense, SlotId } from '../core/types.ts';
 import { formatCard, type ExportContext, type ExportFormat } from '../core/export.ts';
 import { speakable, utteranceLanguage } from '../core/speech.ts';
 import type { Frequency } from '../core/frequency.ts';
+import { markFor } from '../core/marks.ts';
 
 const GAP = 10;
 const MARGIN = 8;
@@ -201,6 +202,24 @@ button.chip[data-state='failed'] { border-color: var(--warn); color: var(--warn)
 .chip.synonym { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); color: var(--accent); }
 .chip.antonym { border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); color: var(--warn); }
 
+/* A site's mark: a monogram in that site's colour, so a row of otherwise
+   identical pills can be found by eye instead of read word by word. Tinted
+   rather than filled — ten saturated tiles would out-shout the answer the
+   card is actually for. */
+.mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 15px; height: 15px; padding: 0 3px; border-radius: 4px;
+  font-size: 9px; font-weight: 700; line-height: 1; letter-spacing: .01em;
+  background: hsl(var(--hue) var(--sat) 90%);
+  color: hsl(var(--hue) var(--sat) 30%);
+  flex: none;
+}
+@media (prefers-color-scheme: dark) {
+  .mark { background: hsl(var(--hue) var(--sat) 23%); color: hsl(var(--hue) var(--sat) 76%); }
+}
+/* Only the link chips carry one, so only they become a row. */
+a.chip { display: inline-flex; align-items: center; gap: 5px; padding-left: 4px; }
+
 .entity { display: flex; gap: 11px; align-items: flex-start; }
 .entity img {
   width: 66px; height: 66px; object-fit: cover;
@@ -224,6 +243,12 @@ footer {
   color: var(--faint); font-size: 11px;
   display: flex; justify-content: space-between; gap: 8px;
 }
+/* Each source wears the same mark as its link chip above, which is the whole
+   reason to colour either: the footer stops being a list of names and starts
+   saying which of the sites up there answered. */
+.sources { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 7px; }
+.source { display: inline-flex; align-items: center; gap: 4px; }
+footer .mark { min-width: 14px; height: 14px; font-size: 8.5px; }
 
 .skeleton { height: 13px; border-radius: 4px; background: var(--surface); margin-bottom: 6px; }
 .skeleton:nth-child(2) { width: 82%; }
@@ -395,6 +420,22 @@ function el<K extends keyof HTMLElementTagNameMap>(
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+/**
+ * The coloured monogram for a site.
+ *
+ * Hidden from assistive technology on purpose: the name it stands for is the
+ * next thing in the same element, so reading both out loud would say
+ * "W Wiktionary" and buy the listener nothing.
+ */
+function markEl(id: string, url?: string): HTMLElement {
+  const mark = markFor(id, url);
+  const node = el('span', 'mark', mark.letter);
+  node.style.setProperty('--hue', String(mark.hue));
+  node.style.setProperty('--sat', `${mark.sat}%`);
+  node.setAttribute('aria-hidden', 'true');
   return node;
 }
 
@@ -815,8 +856,18 @@ export class CardView {
     this.#body.replaceChildren(...sections);
 
     const sources = card.sources.filter((s) => s !== 'links');
+    const credits = el('span', 'sources');
+    if (sources.length === 0) credits.textContent = 'Looking…';
+    else {
+      credits.append(el('span', undefined, 'Sources:'));
+      for (const source of sources) {
+        const one = el('span', 'source');
+        one.append(markEl(source), el('span', undefined, source));
+        credits.append(one);
+      }
+    }
     this.#footer.replaceChildren(
-      el('span', undefined, sources.length ? `Sources: ${sources.join(', ')}` : 'Looking…'),
+      credits,
       el('span', undefined, card.done ? `${card.elapsedMs} ms` : ''),
     );
 
@@ -1149,7 +1200,8 @@ export class CardView {
         const links = slot.data as Array<{ id: string; label: string; url: string }>;
         const chips = el('div', 'chips');
         for (const link of links) {
-          const anchor = el('a', 'chip', link.label);
+          const anchor = el('a', 'chip');
+          anchor.append(markEl(link.id, link.url), el('span', undefined, link.label));
           anchor.href = link.url;
           anchor.target = '_blank';
           anchor.rel = 'noreferrer noopener';
