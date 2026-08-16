@@ -1,4 +1,5 @@
 /** Domain types shared by every layer. No browser APIs appear here. */
+import type { PackLookup } from './packs.ts';
 
 /** What kind of thing the selection is. Decides the card layout. */
 export type Intent =
@@ -157,6 +158,11 @@ export type ProviderContext = {
   http: HttpClient;
   signal: AbortSignal;
   uiLang: string;
+  /**
+   * Installed dictionary packs, absent when none are installed. Injected like
+   * the HTTP client so the pure core never touches storage.
+   */
+  packs?: PackLookup;
 };
 
 /** What a provider produced. Absent slots simply were not filled. */

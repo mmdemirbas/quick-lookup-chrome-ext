@@ -22,6 +22,12 @@ export type GetStatusMessage = { type: 'QL_GET_STATUS' };
 export type GetHistoryMessage = { type: 'QL_GET_HISTORY' };
 export type StarMessage = { type: 'QL_STAR'; query: string; host: string };
 export type ClearHistoryMessage = { type: 'QL_CLEAR_HISTORY' };
+/**
+ * A dictionary pack was installed or removed. The settings page writes to
+ * IndexedDB directly, so nothing else would tell the service worker that what
+ * it read on startup is no longer what is installed.
+ */
+export type PacksChangedMessage = { type: 'QL_PACKS_CHANGED' };
 
 export type ToBackground =
   | LookupMessage
@@ -32,7 +38,8 @@ export type ToBackground =
   | GetStatusMessage
   | GetHistoryMessage
   | StarMessage
-  | ClearHistoryMessage;
+  | ClearHistoryMessage
+  | PacksChangedMessage;
 
 /** Partial results stream to the content script as separate messages. */
 export type CardUpdateMessage = { type: 'QL_CARD'; card: Card };

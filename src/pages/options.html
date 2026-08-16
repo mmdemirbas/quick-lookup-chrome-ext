@@ -74,14 +74,30 @@
         background: var(--bg); border: 1px solid var(--border);
         border-radius: 4px; padding: 1px 5px; font-size: 12px;
       }
-      #sites { list-style: none; margin: 0; padding: 0; }
-      #sites li {
+      #sites, #packs { list-style: none; margin: 0; padding: 0; }
+      #sites li, #packs li {
         display: flex; align-items: center; gap: 12px;
         padding: 9px 0; border-top: 1px solid var(--border);
       }
-      #sites li:first-child { border-top: 0; }
+      #sites li:first-child, #packs li:first-child { border-top: 0; }
       #sites .host { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+      #packs .name { flex: 1; }
+      #packs .meta { color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; }
       .empty { color: var(--faint); }
+      fieldset .lede { margin: 10px 0; font-size: 13px; }
+      .steps { margin: 0 0 6px; padding-left: 20px; color: var(--soft); font-size: 13px; }
+      .steps li { margin-bottom: 4px; }
+      .steps code, fieldset code {
+        background: var(--bg); border: 1px solid var(--border);
+        border-radius: 4px; padding: 0 4px; font-size: 12px;
+      }
+      input[type="text"], input[type="email"], input[type="file"] {
+        background: var(--bg); color: var(--text);
+        border: 1px solid var(--border); border-radius: 8px;
+        padding: 6px 9px; font: inherit; max-width: 320px;
+      }
+      #packForm { border-top: 1px solid var(--border); margin-top: 4px; }
+      a { color: var(--accent); }
     </style>
   </head>
   <body>
@@ -201,6 +217,54 @@
           <button id="downloadTranslation" class="secondary" type="button" hidden>Download</button>
         </div>
         <div id="status">Checking…</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Dictionary packs</legend>
+        <p class="lede">
+          A pack is a dictionary file kept on this device. It answers instantly, works
+          offline, and has no daily allowance. FreeDict publishes one for most language
+          pairs — English to Turkish is 36,589 head-words with pronunciation.
+        </p>
+        <ol class="steps">
+          <li>Download a dictionary in <b>dictd</b> or <b>StarDict</b> form, for example from
+            <a href="https://freedict.org/downloads/" target="_blank" rel="noreferrer">freedict.org</a>.</li>
+          <li>Unpack the archive. Browsers cannot read <code>.tar.xz</code>, so this step
+            has to happen outside the extension.</li>
+          <li>Choose every file it contained: <code>.index</code> and <code>.dict.dz</code>,
+            or <code>.ifo</code>, <code>.idx</code> and <code>.dict.dz</code>. A
+            tab-separated <code>.tsv</code> of word and definition works too.</li>
+        </ol>
+        <div class="row">
+          <label for="packFiles">Dictionary files</label>
+          <input id="packFiles" type="file" multiple />
+        </div>
+        <div id="packForm" hidden>
+          <div class="row">
+            <label for="packName">Name on the card</label>
+            <input id="packName" type="text" />
+          </div>
+          <div class="row">
+            <label for="packSource">
+              Language of the words
+              <span class="hint">Its head-words. Leave the two the same for a
+                dictionary that explains a language in itself.</span>
+            </label>
+            <input id="packSource" type="text" size="4" maxlength="8" />
+          </div>
+          <div class="row">
+            <label for="packTarget">Language of the definitions</label>
+            <input id="packTarget" type="text" size="4" maxlength="8" />
+          </div>
+          <div class="row">
+            <button id="packInstall" type="button">Install</button>
+          </div>
+        </div>
+        <!-- Outside the form on purpose: the form is hidden the moment an
+             install succeeds, and a confirmation that vanishes with it is a
+             confirmation nobody reads. -->
+        <div class="row"><span id="packStatus" class="hint"></span></div>
+        <ul id="packs"><li class="empty">No packs installed.</li></ul>
       </fieldset>
 
       <fieldset>

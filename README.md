@@ -71,6 +71,31 @@ that, but a network outage is not a reason to block a commit.
    about that ecosystem, because `iceberg` is a real npm package and it
    is not the one anyone reading about table formats means.
 
+## Dictionary packs
+
+A pack is a dictionary file kept on this device. It answers at the speed of
+local storage, works offline, and has no daily allowance — which makes it the
+right source for the thing done most often, reading a page in a second
+language word by word.
+
+Settings → Dictionary packs takes **dictd** (`.index` + `.dict.dz`),
+**StarDict** (`.ifo` + `.idx` + `.dict.dz`) and tab-separated files. Between
+them those cover most of what is downloadable;
+[FreeDict](https://freedict.org/downloads/) publishes both binary forms for
+about 150 language pairs. Its English-Turkish edition is 36,589 head-words
+with pronunciation: measured here, the files are read in 84 ms and installed
+in 2.4 seconds, and the 36,589 index entries become 34,328 stored words
+because one spelling with several parts of speech is one entry.
+
+Unpack the archive first. Browsers cannot read `.tar.xz`, so that step has to
+happen outside the extension.
+
+A pack's languages decide what it fills, never its name. A monolingual pack
+writes definitions; a bilingual one writes the translation line, and only
+when its target is the language you asked for — otherwise two installed packs
+would put a German line above Turkish words. Selecting an inflected form
+still works: the base form is tried when the exact one is not a head-word.
+
 ## Triggering
 
 The card opens when you select text. Ten guards keep that from being
@@ -97,6 +122,7 @@ page you were on. It goes to the clipboard and nowhere else.
 |---|---|
 | `storage` | Settings and the lookup cache |
 | `contextMenus` | Right-click lookup on a selection |
+| `unlimitedStorage` | Installed dictionary packs. One is about five megabytes of definitions, and the default extension quota is not much more than that in total |
 | `activeTab` | Reading the selection when triggered by the shortcut |
 | `<all_urls>` content script | The selection handle must be able to appear on any page. The always-on script only listens for selection changes; everything else is loaded on first use |
 | Thirteen host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Wikidata, Wikimedia images, Stack Exchange, npm, PyPI, crates.io, MDN, MyMemory and Google Translate. Each is listed with its reason in `manifest.config.js`. Stack Exchange, the registries and MDN are asked only for technical terms, the registries only on a page about that ecosystem, and the two translators only if you switch translation on |

@@ -666,10 +666,12 @@ export class CardView {
         row.append(say);
         section.append(row);
 
-        // Dictionary head-words, when the translated line is not simply a
-        // list of them already.
-        const words = t.equivalents ?? [];
-        if (words.length > 0 && t.text !== words.map((w) => w.word).join(', ')) {
+        // Dictionary head-words, but only the ones the translated line does
+        // not already contain. A pack writes both, and its line *is* its
+        // head-words, so an equality check on the joined string was too
+        // narrow the moment anything grouped them differently.
+        const words = (t.equivalents ?? []).filter((w) => !t.text.includes(w.word));
+        if (words.length > 0) {
           const chips = el('div', 'chips');
           for (const word of words) chips.append(el('span', 'chip', word.word));
           section.append(chips);

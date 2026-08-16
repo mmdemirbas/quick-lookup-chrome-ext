@@ -29,7 +29,10 @@ const BASE = {
   name: 'Quick Lookup',
   version: '0.2.0',
   description: 'Instant, evidence-backed lookup for whatever you select.',
-  permissions: ['storage', 'contextMenus', 'activeTab'],
+  // `unlimitedStorage` is for installed dictionary packs. One is about five
+  // megabytes of definitions, and the default extension quota is not much
+  // more than that in total.
+  permissions: ['storage', 'contextMenus', 'activeTab', 'unlimitedStorage'],
   host_permissions: DATA_HOSTS,
   icons: { 16: 'icons/16.png', 32: 'icons/32.png', 48: 'icons/48.png', 128: 'icons/128.png' },
   action: { default_title: 'Quick Lookup', default_popup: 'action.html' },

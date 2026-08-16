@@ -3,6 +3,15 @@ import { DEFAULT_SETTINGS, mergeSettings, type Modifier, type Settings, type Tri
 import type { TranslationPreference } from '../core/online-translate.ts';
 import { ext } from '../platform/browser.ts';
 import { downloadTranslation, translationAvailability } from '../platform/ai.ts';
+import {
+  classifyFiles,
+  installPack,
+  listPacks,
+  readPack,
+  removePack,
+  type PackMeta,
+  type PackPreview,
+} from '../platform/packs.ts';
 import type { StatusResponse } from '../shared/messages.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -266,6 +275,131 @@ async function renderTranslation(): Promise<void> {
     }
   };
 }
+
+/**
+ * Installing a dictionary pack.
+ *
+ * Two steps with the reader in between: the files are read and reported on,
+ * then installed. The language pair is a guess from the file name and the
+ * guess is wrong for anything not named the way FreeDict names things — and
+ * a pack installed under the wrong pair answers with the right words in a
+ * card that claims they are another language.
+ */
+let pending: PackPreview | undefined;
+
+const packFields = {
+  files: $<HTMLInputElement>('packFiles'),
+  form: $('packForm'),
+  name: $<HTMLInputElement>('packName'),
+  source: $<HTMLInputElement>('packSource'),
+  target: $<HTMLInputElement>('packTarget'),
+  install: $<HTMLButtonElement>('packInstall'),
+  status: $('packStatus'),
+};
+
+function renderPacks(packs: PackMeta[]): void {
+  const list = $<HTMLUListElement>('packs');
+  list.replaceChildren();
+
+  if (packs.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'empty';
+    empty.textContent = 'No packs installed.';
+    list.append(empty);
+    return;
+  }
+
+  for (const pack of packs) {
+    const item = document.createElement('li');
+
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = pack.name;
+
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    const pair = pack.source === pack.target ? pack.source : `${pack.source} → ${pack.target}`;
+    meta.textContent = `${pair} · ${pack.entries.toLocaleString()} words · ${pack.format}`;
+
+    const remove = document.createElement('button');
+    remove.className = 'secondary';
+    remove.type = 'button';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => {
+      void removePack(pack.id)
+        .then(() => ext.runtime.sendMessage({ type: 'QL_PACKS_CHANGED' }))
+        .then(() => listPacks())
+        .then(renderPacks);
+    });
+
+    item.append(name, meta, remove);
+    list.append(item);
+  }
+}
+
+packFields.files.addEventListener('change', () => {
+  const files = [...(packFields.files.files ?? [])];
+  packFields.form.hidden = true;
+  pending = undefined;
+  if (files.length === 0) return;
+
+  const classified = classifyFiles(files);
+  if (typeof classified === 'string') {
+    packFields.status.textContent = classified;
+    return;
+  }
+
+  packFields.status.textContent = 'Reading…';
+  void readPack(classified)
+    .then((preview) => {
+      if (preview.records.length === 0) {
+        packFields.status.textContent =
+          'That is the right kind of file, but no entries could be read from it.';
+        return;
+      }
+      pending = preview;
+      packFields.name.value = preview.name;
+      packFields.source.value = preview.source;
+      packFields.target.value = preview.target;
+      packFields.status.textContent =
+        `${preview.records.length.toLocaleString()} entries. Check the languages, then install.`;
+      packFields.form.hidden = false;
+    })
+    .catch((error: Error) => {
+      packFields.status.textContent = `Could not read it: ${error.message}`;
+    });
+});
+
+packFields.install.addEventListener('click', () => {
+  if (!pending) return;
+  const chosen = {
+    name: packFields.name.value.trim() || pending.name,
+    source: packFields.source.value.trim().toLowerCase() || 'en',
+    target: packFields.target.value.trim().toLowerCase() || 'en',
+  };
+
+  packFields.install.disabled = true;
+  void installPack(pending, chosen, (done, total) => {
+    packFields.status.textContent = `Installing… ${Math.round((done / total) * 100)}%`;
+  })
+    .then((meta) => {
+      packFields.status.textContent = `Installed ${meta.entries.toLocaleString()} words.`;
+      packFields.form.hidden = true;
+      packFields.files.value = '';
+      pending = undefined;
+      return ext.runtime.sendMessage({ type: 'QL_PACKS_CHANGED' });
+    })
+    .then(() => listPacks())
+    .then(renderPacks)
+    .catch((error: Error) => {
+      packFields.status.textContent = `Could not install it: ${error.message}`;
+    })
+    .finally(() => {
+      packFields.install.disabled = false;
+    });
+});
+
+void listPacks().then(renderPacks);
 
 function flashSaved(): void {
   const saved = $('saved');

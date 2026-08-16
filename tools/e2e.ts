@@ -16,6 +16,7 @@
  */
 import { chromium, type BrowserContext, type Worker } from 'playwright';
 import http from 'node:http';
+import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -122,7 +123,7 @@ async function checkTranslationDownload(context: BrowserContext, id: string): Pr
  * height it was given.
  */
 async function checkBottomPlacement(page: import('playwright').Page): Promise<void> {
-  await page.getByText('A partition groups data files').dblclick({ position: { x: 20, y: 8 } });
+  await paragraph(page, 'A partition groups data files').dblclick({ position: { x: 20, y: 8 } });
 
   const card = page.locator('quick-lookup-card .card');
   const appeared = await card
@@ -197,7 +198,7 @@ async function checkBottomPlacement(page: import('playwright').Page): Promise<vo
 async function checkHandle(page: import('playwright').Page): Promise<void> {
   // Triple-click takes the whole paragraph, which is past the word count
   // where a selection stops reading as a lookup.
-  await page.getByText('A manifest is a metadata file', { exact: false }).click({ clickCount: 3 });
+  await paragraph(page, 'A manifest is a metadata file').click({ clickCount: 3 });
 
   const handle = page.locator('quick-lookup-handle button');
   const offered = await handle
@@ -220,6 +221,165 @@ async function checkHandle(page: import('playwright').Page): Promise<void> {
 
   await page.keyboard.press('Escape');
 }
+
+/**
+ * A dictd dictionary, built here rather than downloaded.
+ *
+ * The real FreeDict release is 2 MB behind a network and inside a `.tar.xz`
+ * this check cannot unpack, so depending on it would make a browser check
+ * depend on a mirror. What has to be proved is the path — a file picker, a
+ * gzip stream, a base-64 index, IndexedDB, and a service worker reading what
+ * a settings page wrote — and a three-word dictionary proves all of it. The
+ * *format* is pinned separately, in `packs.test.ts`, against lines copied out
+ * of the real file.
+ */
+function dictdPack(entries: Array<[string, string]>): { index: Buffer; dict: Buffer } {
+  const digits = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const encode = (value: number): string => {
+    if (value === 0) return 'A';
+    let out = '';
+    for (let left = value; left > 0; left = Math.floor(left / 64)) {
+      out = digits[left % 64] + out;
+    }
+    return out;
+  };
+
+  const lines: string[] = [];
+  let blob = '';
+  for (const [word, text] of entries) {
+    lines.push(`${word}\t${encode(Buffer.byteLength(blob))}\t${encode(Buffer.byteLength(text))}`);
+    blob += text;
+  }
+  return {
+    index: Buffer.from(`${lines.join('\n')}\n`),
+    dict: gzipSync(Buffer.from(blob)),
+  };
+}
+
+/**
+ * Installing a dictionary pack, then reading a word out of it on a page.
+ *
+ * The second half is the point. A pack that imports and is never consulted
+ * looks exactly like one that works, and the wiring between them crosses
+ * three boundaries: the settings page writes IndexedDB, the service worker
+ * reads it, and the cache key has to have changed or the reader gets the
+ * card composed before the pack existed.
+ */
+async function checkDictionaryPack(
+  context: BrowserContext,
+  id: string,
+  origin: string,
+): Promise<void> {
+  const pack = dictdPack([
+    ['manifest', 'manifest /ˈmænɪfɛst/\n1. bildirge, manifesto.\n2. yük listesi.\n'],
+    ['partition', 'partition /pɑːˈtɪʃən/\n1. bölme, bölüm, ayırma.\n'],
+    ['snapshot', 'snapshot\n1. anlık görüntü.\n'],
+  ]);
+
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${id}/options.html`, { waitUntil: 'domcontentloaded' });
+
+  await page.locator('#packFiles').setInputFiles([
+    { name: 'test-eng-tur.index', mimeType: 'text/plain', buffer: pack.index },
+    { name: 'test-eng-tur.dict.dz', mimeType: 'application/gzip', buffer: pack.dict },
+  ]);
+
+  const status = page.locator('#packStatus');
+  const read = await page
+    .locator('#packForm')
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false);
+  record('a dictionary file is recognised and read', read, (await status.textContent()) ?? '');
+  if (!read) {
+    await page.close();
+    return;
+  }
+
+  // The language pair comes from the file name, and getting it wrong shows a
+  // card whose words are right and whose label is a lie.
+  record(
+    'the language pair is taken from the file name',
+    (await page.locator('#packSource').inputValue()) === 'en' &&
+      (await page.locator('#packTarget').inputValue()) === 'tr',
+    `${await page.locator('#packSource').inputValue()} → ${await page.locator('#packTarget').inputValue()}`,
+  );
+
+  await page.locator('#packInstall').click();
+  const installed = await status
+    .filter({ hasText: /Installed \d+ words/ })
+    .waitFor({ timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  record('the pack installs', installed, (await status.textContent()) ?? '');
+
+  const listed = (await page.locator('#packs li .name').first().textContent()) ?? '';
+  record('an installed pack is listed with its languages', /eng-tur/i.test(listed), listed);
+  await page.close();
+  if (!installed) return;
+
+  // A fresh tab, not the one the earlier checks used. Three dismissals on one
+  // host is the point at which the extension stops opening by itself, and
+  // those checks pressed Escape exactly that many times — so reusing the tab
+  // would measure the quieten-itself guard rather than the pack.
+  //
+  // The same word and the same gesture as the very first check in this file,
+  // so the only thing that changed between the two is the installed pack.
+  // `manifest` having been looked up already is the point: a stale cached
+  // card would carry no Turkish at all.
+  const reader = await context.newPage();
+  await reader.goto(origin, { waitUntil: 'domcontentloaded' });
+  await paragraph(reader, 'A manifest is a metadata file').dblclick({ position: { x: 20, y: 10 } });
+
+  const translation = reader.locator('quick-lookup-card .translation');
+  const shown = await translation
+    .waitFor({ state: 'visible', timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+  // On failure, report what the card *did* say. "No translation appeared" is
+  // true of a stale cached card, a pack that was not consulted and a word
+  // that was never selected, and those need different fixes.
+  await reader.waitForTimeout(2000);
+  const text = shown ? ((await translation.textContent()) ?? '') : 'no translation slot';
+  // The sources line says whether the pack was consulted at all, which is the
+  // difference between "not installed", "not reached" and "outranked".
+  const sources =
+    (await reader.locator('quick-lookup-card footer span').first().textContent()) ?? '';
+  record(
+    'an installed pack answers a word on a real page, offline',
+    /bildirge/.test(text) && /yük listesi/.test(text),
+    `${text.replace(/\s+/g, ' ').trim().slice(0, 60)} [${sources.trim()}]`,
+  );
+  await reader.close();
+
+  // Uninstall before leaving. The profile outlives the run, so a pack left
+  // behind is installed before the *next* run's first lookup — which then
+  // caches a card under a key that already carries the pack, and the check
+  // above can never observe the difference it exists to observe. Removing it
+  // also exercises the button, which nothing else does.
+  const cleanup = await context.newPage();
+  await cleanup.goto(`chrome-extension://${id}/options.html`, { waitUntil: 'domcontentloaded' });
+  await cleanup.locator('#packs li button').first().click();
+  const gone = await cleanup
+    .locator('#packs li.empty')
+    .waitFor({ timeout: 8000 })
+    .then(() => true)
+    .catch(() => false);
+  record('a pack can be removed again', gone);
+  await cleanup.close();
+}
+
+/**
+ * A paragraph of the page itself.
+ *
+ * Not `getByText`: an open card quotes the page back, Playwright looks inside
+ * open shadow roots, and from the second lookup onwards a bare text match
+ * resolves to two elements and fails on strict mode. Which of the two it
+ * finds also depends on whether an earlier check left a card open, so the
+ * failure moves around between runs.
+ */
+const paragraph = (page: import('playwright').Page, text: string) =>
+  page.locator('body > p').filter({ hasText: text });
 
 type Check = { name: string; ok: boolean; detail: string };
 const checks: Check[] = [];
@@ -270,9 +430,7 @@ try {
   // Double-click selects the word and produces the pointer events the
   // trigger actually listens for. Nothing here reaches inside the
   // extension: this is the gesture a reader makes.
-  await page.getByText('A manifest is a metadata file', { exact: false }).dblclick({
-    position: { x: 20, y: 10 },
-  });
+  await paragraph(page, 'A manifest is a metadata file').dblclick({ position: { x: 20, y: 10 } });
 
   const card = page.locator('quick-lookup-card .card');
   const appeared = await card
@@ -369,7 +527,9 @@ try {
     if (closed) await checkHandle(page);
   }
 
-  await checkTranslationDownload(context, worker.url().split('/')[2] ?? '');
+  const extensionId = worker.url().split('/')[2] ?? '';
+  await checkTranslationDownload(context, extensionId);
+  await checkDictionaryPack(context, extensionId, origin);
 
   record('no errors from the background script', workerErrors.length === 0, workerErrors.join(' | '));
   record('no errors on the page', pageErrors.length === 0, pageErrors.join(' | '));

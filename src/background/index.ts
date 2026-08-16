@@ -20,7 +20,9 @@ import { wikipediaProvider } from '../core/providers/wikipedia.ts';
 import { stackExchangeProvider } from '../core/providers/stackexchange.ts';
 import { registryProvider } from '../core/providers/registry.ts';
 import { mdnProvider } from '../core/providers/mdn.ts';
+import { packProvider } from '../core/providers/pack.ts';
 import { ext } from '../platform/browser.ts';
+import { packLookup } from '../platform/packs.ts';
 import { createHttpClient } from '../platform/http.ts';
 import { detectCapabilities, translate, uiLanguage } from '../platform/ai.ts';
 import { translateOnline } from '../core/online-translate.ts';
@@ -29,7 +31,17 @@ import type { StatusResponse, ToBackground } from '../shared/messages.ts';
 const VERSION = ext.runtime.getManifest().version;
 const http = createHttpClient(VERSION);
 
+/**
+ * Opened once per service-worker lifetime, not once per lookup. The worker is
+ * torn down after about thirty seconds of inactivity, so "once" is often and
+ * the metadata read behind this is what keeps it cheap when no pack exists.
+ */
+const packs = packLookup();
+
 const PROVIDERS: Provider[] = [
+  // Installed packs lead: they are local, so they are the one source that
+  // can fill a slot before the first request has left the machine.
+  packProvider,
   wikipediaProvider,
   stackExchangeProvider,
   registryProvider,
@@ -162,6 +174,7 @@ async function handleLookup(
       : {}),
     onlineTranslation: settings.appearance.onlineTranslation,
     translationService: settings.appearance.translationService,
+    packs: await packs.signature(),
   });
   const key = lookupKey(trimmed, decision.intent, page.host ?? '', lang, shape);
 
@@ -197,7 +210,7 @@ async function handleLookup(
     const card = await runLookup(
       request,
       decision,
-      { http, providers: PROVIDERS },
+      { http, providers: PROVIDERS, packs },
       {
         signal: controller.signal,
         onUpdate: (partial) => send(tabId, partial),
@@ -269,6 +282,14 @@ ext.runtime.onMessage.addListener((message: ToBackground, sender, sendResponse) 
     case 'QL_STAR':
       void persistent.toggleStar(message.query, message.host).then(sendResponse);
       return true;
+
+    case 'QL_PACKS_CHANGED':
+      packs.refresh();
+      // Cached cards were composed without the new pack, or with one that has
+      // gone. The persistent layer is keyed by a shape that now includes the
+      // installed set, so only the in-memory copy has to be dropped.
+      memory.clear();
+      return false;
 
     case 'QL_CLEAR_HISTORY':
       void persistent.clearHistory().then(() => persistent.history().then(sendResponse));

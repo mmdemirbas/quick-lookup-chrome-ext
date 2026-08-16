@@ -10,6 +10,7 @@
  * card. A new lookup aborts everything still in flight.
  */
 import type { Card, HttpClient, LookupRequest, Provider } from './types.ts';
+import type { PackLookup } from './packs.ts';
 import type { Decision } from './intent/router.ts';
 import { applyResult, createCard, finalise } from './card.ts';
 import { makeLinksProvider } from './providers/links.ts';
@@ -19,6 +20,8 @@ import { contentWords } from './text.ts';
 export type LookupDeps = {
   http: HttpClient;
   providers: Provider[];
+  /** Installed dictionary packs. Absent means none are installed. */
+  packs?: PackLookup;
   now?: () => number;
 };
 
@@ -103,6 +106,7 @@ export async function runLookup(
           http: deps.http,
           signal: scope.signal,
           uiLang: request.uiLang,
+          ...(deps.packs ? { packs: deps.packs } : {}),
         });
         if (outerSignal.aborted) return;
         if (result) {
