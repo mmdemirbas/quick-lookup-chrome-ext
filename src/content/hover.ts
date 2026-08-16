@@ -16,7 +16,7 @@
  * style rule injected into the page.
  */
 import type { Modifier } from '../core/settings.ts';
-import { resizeSpan, sliceSpan, wordAt, type Span } from '../core/span.ts';
+import { compoundAt, resizeSpan, sliceSpan, wordAt, type Span } from '../core/span.ts';
 
 /** How long the pointer must rest on a new word before it is looked up. */
 const DWELL_MS = 220;
@@ -176,11 +176,15 @@ export class HoverLookup {
     }
 
     const text = node.nodeValue ?? '';
-    const span = wordAt(text, caret.offset);
-    if (!span) {
+    const base = wordAt(text, caret.offset);
+    if (!base) {
       this.#clearOverlay();
       return;
     }
+
+    // Pointing anywhere in a dotted or hyphenated name means the whole name.
+    // Shift+arrow narrows it back to one part when that is what was wanted.
+    const span = compoundAt(text, base);
 
     const target: Target = { node: node as Text, text, span };
     const word = sliceSpan(text, span);

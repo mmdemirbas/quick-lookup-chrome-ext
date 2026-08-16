@@ -51,6 +51,46 @@ export function wordAt(text: string, offset: number, locale = 'en'): Span | unde
   return undefined;
 }
 
+/**
+ * Punctuation that joins the parts of one name rather than separating words.
+ *
+ * `:` and `/` are here for `namespace:table` and paths; the guard below is
+ * what keeps them from swallowing prose, since both normally sit next to a
+ * space when used as punctuation.
+ */
+const JOINERS = new Set(['.', '-', '_', '/', ':']);
+
+const isWordChar = (char: string | undefined): boolean =>
+  char !== undefined && /[\p{L}\p{N}]/u.test(char);
+
+/**
+ * Widens a span across the punctuation that holds an identifier together.
+ *
+ * `Intl.Segmenter` is right about prose and wrong about configuration:
+ * `write.metadata.compression-codec` is four word-like segments to it, so
+ * pointing at that flag in the Iceberg documentation asked about `metadata`
+ * — a word the reader already knew, in a card that could not explain the
+ * thing they were actually looking at.
+ *
+ * A joining character only counts when it sits *directly* between two word
+ * characters. That single condition is what separates `config.yaml` from the
+ * full stop ending a sentence, `and/or` from a line break, and `S3://bucket`
+ * from an ellipsis: punctuation used as punctuation is followed by a space.
+ */
+export function compoundAt(text: string, span: Span): Span {
+  let { start, end } = span;
+
+  while (start >= 2 && JOINERS.has(text[start - 1] ?? '') && isWordChar(text[start - 2])) {
+    start -= 2;
+    while (start > 0 && isWordChar(text[start - 1])) start--;
+  }
+  while (end + 1 < text.length && JOINERS.has(text[end] ?? '') && isWordChar(text[end + 1])) {
+    end += 2;
+    while (end < text.length && isWordChar(text[end])) end++;
+  }
+  return { start, end };
+}
+
 export function sliceSpan(text: string, span: Span): string {
   return text.slice(span.start, span.end).trim();
 }
