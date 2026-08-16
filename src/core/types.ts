@@ -1,5 +1,6 @@
 /** Domain types shared by every layer. No browser APIs appear here. */
 import type { PackLookup } from './packs.ts';
+import type { Frequency } from './frequency.ts';
 
 /** What kind of thing the selection is. Decides the card layout. */
 export type Intent =
@@ -16,6 +17,7 @@ export type Intent =
 export type SlotId =
   | 'headword'
   | 'pronunciation'
+  | 'frequency'
   | 'gloss'
   | 'senses'
   | 'related'
@@ -105,6 +107,7 @@ export type LinkTarget = {
 export type SlotData = {
   headword: string;
   pronunciation: Pronunciation[];
+  frequency: Frequency;
   gloss: string;
   senses: Sense[];
   related: Related[];

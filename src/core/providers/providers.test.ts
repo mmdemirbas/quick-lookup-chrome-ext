@@ -132,7 +132,7 @@ test('datamuse splits its tab-encoded definitions and keeps its tags', async () 
   assert.equal(related[1]?.kind, 'collocation');
 });
 
-test('datamuse survives one of its two requests failing', async () => {
+test('datamuse survives one of its requests failing', async () => {
   const http: HttpClient = {
     async json(url: string) {
       if (url.includes('rel_bgb=')) throw new Error('down');
@@ -141,6 +141,45 @@ test('datamuse survives one of its two requests failing', async () => {
   };
   const result = await datamuseProvider.run(request, context(http));
   assert.equal(result?.slots.related?.length, 1);
+});
+
+test("the frequency shown is the selected word's own, or none", async () => {
+  const http = stubHttp([
+    ['ml=', []],
+    ['rel_bgb=', []],
+    ['sp=', [{ word: 'ephemeral', tags: ['adj', 'n', 'f:1.600203'] }]],
+  ]);
+  const result = await datamuseProvider.run(request, context(http));
+  assert.deepEqual(result?.slots.frequency, {
+    perMillion: 1.600203,
+    band: 3,
+    label: 'fairly common',
+    source: 'datamuse',
+  });
+  // Worth its own request precisely because the other two cannot carry it:
+  // `ml=` and `rel_bgb=` return *other* words, so their frequencies are
+  // frequencies of the synonyms.
+  assert.equal(result?.slots.related, undefined, 'and a frequency alone is still an answer');
+
+  // `sp=` is a pattern search. A row for a near miss is a true frequency
+  // about a different word, which is the kind of wrong that looks reasonable.
+  const wrong = stubHttp([
+    ['ml=', []],
+    ['rel_bgb=', []],
+    ['sp=', [{ word: 'ephemera', tags: ['f:0.4'] }]],
+  ]);
+  assert.equal(await datamuseProvider.run(request, context(wrong)), null);
+});
+
+test('a phrase is never asked about, because the corpus is indexed by word', async () => {
+  const http = stubHttp([
+    ['ml=', [{ word: 'isolation' }]],
+    ['rel_bgb=', []],
+  ]);
+  const phrase: LookupRequest = { ...request, text: 'snapshot isolation' };
+  const result = await datamuseProvider.run(phrase, context(http));
+  assert.ok(result?.slots.related?.length);
+  assert.ok(!http.calls.some((url) => url.includes('sp=')), 'no request was spent on it');
 });
 
 const TURING = {

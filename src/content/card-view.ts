@@ -16,6 +16,7 @@
 import type { Card, Related, Sense, SlotId } from '../core/types.ts';
 import { formatCard, type ExportContext, type ExportFormat } from '../core/export.ts';
 import { speakable, utteranceLanguage } from '../core/speech.ts';
+import type { Frequency } from '../core/frequency.ts';
 
 const GAP = 10;
 const MARGIN = 8;
@@ -102,6 +103,10 @@ button.icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 1p
 .body { padding: 4px 13px 12px; }
 section { padding: 8px 0; border-top: 1px solid var(--border); }
 section:first-child { border-top: 0; }
+/* Pronunciation and frequency are both one short line identifying the word.
+   A rule between them gives a five-pixel bar the same weight as Definitions
+   and makes the top of the card read as three stacked strips. */
+section.tight { border-top: 0; padding-top: 0; }
 section[hidden] { display: none; }
 .label {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
@@ -111,6 +116,14 @@ section[hidden] { display: none; }
 .gloss { font-size: 15px; line-height: 1.45; }
 .ipa { color: var(--soft); font-size: 13px; }
 .ipa span + span { margin-left: 10px; }
+.frequency { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--soft); }
+.frequency .bar { display: inline-flex; gap: 2px; }
+.frequency .bar span {
+  width: 9px; height: 6px; border-radius: 1px;
+  background: var(--border);
+}
+.frequency .bar span.on { background: var(--accent); }
+.frequency .band { letter-spacing: .01em; }
 
 ol.senses { margin: 0; padding-left: 18px; }
 ol.senses li { margin-bottom: 7px; }
@@ -614,6 +627,30 @@ export class CardView {
           row.append(el('span', undefined, p.dialect ? `${p.dialect} ${p.ipa}` : p.ipa));
         }
         if (!row.hasChildNodes()) return undefined;
+        section.append(row);
+        return section;
+      }
+
+      case 'frequency': {
+        const f = slot.data as Frequency;
+        // Joined to the pronunciation above it when there is one, so the two
+        // read as one block about the word rather than as two strips.
+        if (card.slots.pronunciation?.state === 'filled') section.className = 'tight';
+        const row = el('div', 'frequency');
+
+        // Five segments, filled to the band. Length encodes the value, so the
+        // comparison between two words is made by the eye rather than by
+        // reading two numbers off a logarithmic scale.
+        const bar = el('span', 'bar');
+        for (let step = 1; step <= 5; step++) {
+          const cell = el('span', step <= f.band ? 'on' : undefined);
+          bar.append(cell);
+        }
+        // The bar alone cannot say what it measures, and colour alone cannot
+        // either — so the word is always there and the exact figure is one
+        // hover away for anyone who wants it.
+        row.append(bar, el('span', 'band', f.label));
+        row.title = `${f.perMillion.toLocaleString(undefined, { maximumFractionDigits: 2 })} per million words, ${f.source}`;
         section.append(row);
         return section;
       }

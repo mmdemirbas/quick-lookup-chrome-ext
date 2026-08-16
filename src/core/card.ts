@@ -39,7 +39,10 @@ function getSlot(card: Card, id: SlotId): { state: SlotState; data?: unknown } |
 
 /** Render order per intent. The first slot is the one the eye lands on. */
 const LAYOUT: Record<Intent, SlotId[]> = {
-  word: ['headword', 'pronunciation', 'gloss', 'onPage', 'senses', 'related', 'translation', 'links'],
+  // Frequency sits with pronunciation rather than at the foot: both are one
+  // short line identifying the word itself, and for a reader deciding whether
+  // a word is worth learning, how common it is belongs beside how it sounds.
+  word: ['headword', 'pronunciation', 'frequency', 'gloss', 'onPage', 'senses', 'related', 'translation', 'links'],
   phrase: ['gloss', 'onPage', 'senses', 'extract', 'translation', 'links'],
   entity: ['entity', 'facts', 'onPage', 'extract', 'translation', 'links'],
   technical: ['gloss', 'onPage', 'extract', 'facts', 'entity', 'senses', 'links'],

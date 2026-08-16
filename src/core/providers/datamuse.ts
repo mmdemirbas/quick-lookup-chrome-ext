@@ -5,11 +5,12 @@
  * returns short definitions, which makes it a third independent check on
  * whether a word exists at all.
  *
- * Two requests run as one provider because they are the same shape and the
- * results merge into the same slot.
+ * The requests run as one provider because they are the same shape and,
+ * mostly, merge into the same slot.
  */
-import type { Provider, ProviderResult, Related, RelatedKind } from '../types.ts';
+import type { Provider, ProviderResult, Related, RelatedKind, SlotData } from '../types.ts';
 import { dedupeBy } from '../text.ts';
+import { frequencyBand, hasFrequency, readFrequencyTag } from '../frequency.ts';
 
 const SOURCE = 'datamuse';
 
@@ -48,12 +49,18 @@ export const datamuseProvider: Provider = {
   id: 'datamuse',
   label: 'Datamuse',
   intents: ['word', 'phrase'],
-  slots: ['related'],
+  slots: ['related', 'frequency'],
   deadlineMs: 900,
 
   async run(request, context): Promise<ProviderResult | null> {
-    const word = encodeURIComponent(request.text.trim().toLowerCase());
-    const [meaning, collocations] = await Promise.allSettled([
+    const text = request.text.trim();
+    const word = encodeURIComponent(text.toLowerCase());
+    const wantsFrequency = hasFrequency(text);
+
+    // A third request rather than a field on the first two: `ml=` and
+    // `rel_bgb=` return *other* words, so neither of them ever carries the
+    // frequency of the word that was selected.
+    const [meaning, collocations, self] = await Promise.allSettled([
       context.http.json<Row[]>(
         `https://api.datamuse.com/words?ml=${word}&max=8&md=d`,
         { signal: context.signal },
@@ -62,6 +69,12 @@ export const datamuseProvider: Provider = {
         `https://api.datamuse.com/words?rel_bgb=${word}&max=6`,
         { signal: context.signal },
       ),
+      wantsFrequency
+        ? context.http.json<Row[]>(
+            `https://api.datamuse.com/words?sp=${word}&md=f&max=1`,
+            { signal: context.signal },
+          )
+        : Promise.resolve([]),
     ]);
 
     const related: Related[] = [];
@@ -72,11 +85,32 @@ export const datamuseProvider: Provider = {
       related.push(...toRelated(collocations.value, 'collocation'));
     }
 
-    if (related.length === 0) return null;
+    const frequency = self.status === 'fulfilled' ? readFrequency(self.value, text) : undefined;
+
+    if (related.length === 0 && !frequency) return null;
     return {
       slots: {
-        related: dedupeBy(related, (r) => `${r.kind}:${r.word.toLowerCase()}`),
+        ...(related.length
+          ? { related: dedupeBy(related, (r) => `${r.kind}:${r.word.toLowerCase()}`) }
+          : {}),
+        ...(frequency ? { frequency } : {}),
       },
     };
   },
 };
+
+/**
+ * The selected word's own frequency, or nothing.
+ *
+ * The spelling is checked rather than trusted. `sp=` is a pattern search, and
+ * a row for a near miss would be a true frequency about a different word —
+ * the kind of wrong that looks entirely reasonable on the card.
+ */
+function readFrequency(rows: Row[], text: string): SlotData['frequency'] | undefined {
+  const first = Array.isArray(rows) ? rows[0] : undefined;
+  if (!first?.word || first.word.toLowerCase() !== text.toLowerCase()) return undefined;
+
+  const perMillion = readFrequencyTag(first.tags);
+  if (perMillion === undefined) return undefined;
+  return { perMillion, ...frequencyBand(perMillion), source: SOURCE };
+}

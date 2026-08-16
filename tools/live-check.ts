@@ -106,11 +106,20 @@ const CASES: Case[] = [
     text: 'ephemeral',
     page: { host: 'en.wikipedia.org', title: 'Reading' },
     glossLanguage: 'tr',
-    needs: ['free-dictionary', 'wiktionary'],
-    expect: (card) =>
-      (card.slots.senses?.data?.length ?? 0) >= 2
+    needs: ['free-dictionary', 'wiktionary', 'datamuse'],
+    expect: (card) => {
+      if ((card.slots.senses?.data?.length ?? 0) < 2) {
+        return 'expected at least two senses for a common English word';
+      }
+      // The frequency comes from a third Datamuse request that is easy to
+      // break without any test noticing: the other two return *other* words,
+      // so a wrong endpoint still fills the related slot and looks healthy.
+      const frequency = card.slots.frequency?.data;
+      if (!frequency) return 'expected a frequency for a word the corpus knows';
+      return frequency.band === 3
         ? undefined
-        : 'expected at least two senses for a common English word',
+        : `expected "ephemeral" in band 3, got ${frequency.band} (${frequency.perMillion}/M)`;
+    },
   },
   {
     text: 'planner',

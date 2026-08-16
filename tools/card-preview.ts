@@ -21,6 +21,8 @@ function wordCard(): Card {
     slots: {
       headword: 'ephemeral',
       pronunciation: [{ ipa: '/ɛˈfɛ.mə.ɹəl/', dialect: 'UK' }, { ipa: '/əˈfɛm(ə)rəl/', dialect: 'US' }],
+      // The figure Datamuse actually returns for this word.
+      frequency: { perMillion: 1.600203, band: 3, label: 'fairly common', source: 'datamuse' },
       senses: [
         {
           partOfSpeech: 'adjective',
