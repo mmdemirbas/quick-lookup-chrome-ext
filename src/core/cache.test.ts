@@ -63,6 +63,20 @@ test('a card is only re-fetched for settings that change what is in it', () => {
   );
 });
 
+test('a card composed by an older build is not reused by a newer one', () => {
+  // Settings are not the only thing that changes what a card contains: so
+  // does adding a slot. Without this, a reader who updates keeps seeing cards
+  // with no new section for every word they had already looked up, which is
+  // most of the words they use, for as long as the week-long cache lives.
+  assert.notEqual(
+    cardShape({ glossLanguage: 'tr', build: '0.2.0' }),
+    cardShape({ glossLanguage: 'tr', build: '0.3.0' }),
+  );
+  // And it applies with no gloss language at all, because a new slot can be
+  // one that has nothing to do with translation.
+  assert.notEqual(cardShape({ build: '0.2.0' }), cardShape({ build: '0.3.0' }));
+});
+
 test('switching translation service is a different card, but only while one is in use', () => {
   const google = cardShape({ glossLanguage: 'tr', onlineTranslation: true, translationService: 'google' });
   const myMemory = cardShape({ glossLanguage: 'tr', onlineTranslation: true, translationService: 'mymemory' });

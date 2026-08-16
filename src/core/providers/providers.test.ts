@@ -9,6 +9,7 @@ import { linksFor } from './links.ts';
 import { definitionText, stackExchangeProvider, tagCandidates } from './stackexchange.ts';
 import { packageName, registryProvider } from './registry.ts';
 import { mdnProvider, titleMatches } from './mdn.ts';
+import { inContext } from './page.ts';
 
 /** Serves canned payloads by URL substring, and records what was requested. */
 function stubHttp(routes: Array<[string, unknown]>): HttpClient & { calls: string[] } {
@@ -679,4 +680,45 @@ test('accent names are shortened to what a dictionary prints', () => {
   assert.equal(shortDialect('chiefly in the north of England'), undefined);
   assert.equal(shortDialect(undefined), undefined);
   assert.equal(shortDialect('  '), undefined);
+});
+
+test('the sentence a word was met in is split around the word', () => {
+  const split = inContext(
+    'A manifest is a metadata file that lists the data files making up a snapshot.',
+    'manifest',
+  );
+  assert.deepEqual(split, {
+    before: 'A ',
+    term: 'manifest',
+    after: ' is a metadata file that lists the data files making up a snapshot.',
+  });
+});
+
+test('an inflected form on the page still marks the word inside it', () => {
+  // The reader selected `partition`; the page says `Partitions`. Marking the
+  // stem inside it is right, and case never decides anything — readers select
+  // the word as the page capitalised it.
+  assert.deepEqual(inContext('Partitions were rewritten overnight.', 'partition'), {
+    before: '',
+    term: 'Partition',
+    after: 's were rewritten overnight.',
+  });
+  assert.equal(inContext('Manifest files are small.', 'manifest')?.term, 'Manifest');
+});
+
+test('a sentence that cannot show the word at all is still worth keeping', () => {
+  // A base form the page never spells out — reached by the pack's form
+  // guessing, or by hover. The sentence is still where the reader met it.
+  const split = inContext('He ran the query overnight.', 'run');
+  assert.deepEqual(split, { before: 'He ran the query overnight.', term: '', after: '' });
+});
+
+test('a paragraph is not a sentence, and a word is not a context', () => {
+  // Past the cap it is a paragraph with no full stop in it, and repeating a
+  // paragraph the reader is looking at is noise.
+  assert.equal(inContext('word '.repeat(60), 'word'), undefined);
+  // A "sentence" that is only the word says nothing the card title does not.
+  assert.equal(inContext('manifest', 'manifest'), undefined);
+  assert.equal(inContext('   ', 'manifest'), undefined);
+  assert.equal(inContext('A manifest file.', '  '), undefined);
 });

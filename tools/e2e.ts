@@ -16,6 +16,7 @@
  */
 import { chromium, type BrowserContext, type Worker } from 'playwright';
 import http from 'node:http';
+import { rm } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -605,6 +606,19 @@ const origin = `http://127.0.0.1:${typeof address === 'object' && address ? addr
 
 let context: BrowserContext | undefined;
 try {
+  // A fresh profile every run, and not for tidiness.
+  //
+  // Chrome keeps the registered service worker of an extension already in the
+  // profile and does not swap it for the one on disk. The content script is
+  // reloaded, the background script is not — so a run tests today's front end
+  // against whatever build last touched this directory. It cost an afternoon:
+  // three slots added to the card layout were absent from every card in the
+  // browser, and the code was correct the whole time.
+  //
+  // The persistent cache lives here too, so this also stops a check being
+  // answered by a card composed under different settings a week ago.
+  await rm(PROFILE, { recursive: true, force: true });
+
   context = await chromium.launchPersistentContext(PROFILE, {
     // An extension needs a persistent context, and only the `chromium`
     // channel loads one without a visible window. Set E2E_HEADED=1 to watch
@@ -653,6 +667,25 @@ try {
     const headword = (await page.locator('quick-lookup-card header .query').textContent()) ?? '';
     record('the card names what was selected', /manifest/i.test(headword), `query=${headword}`);
 
+    // The sentence the word was met in, with the word marked. Local, and the
+    // thing that lets a card that has been dragged aside — or copied into a
+    // note — still say why the word was worth looking up.
+    const marked = await page
+      .locator('quick-lookup-card .incontext mark')
+      .first()
+      .waitFor({ timeout: 6000 })
+      .then(() =>
+        page.locator('quick-lookup-card .incontext mark').first().textContent(),
+      )
+      .catch(() => null);
+    const sentence =
+      (await page.locator('quick-lookup-card .incontext').first().textContent().catch(() => null)) ?? '';
+    record(
+      'the card shows the sentence the word was met in, with the word marked',
+      marked?.toLowerCase() === 'manifest' && /metadata file that lists/.test(sentence),
+      sentence.slice(0, 56),
+    );
+
     // Local, so it must arrive regardless of the network.
     const onPage = page.locator('quick-lookup-card section', { hasText: 'On this page' });
     const quoted = (await onPage.locator('.quote').first().textContent().catch(() => null)) ?? '';
@@ -665,6 +698,25 @@ try {
     // Network sources are reported rather than asserted: an outage is not a
     // defect in the extension.
     await page.waitForTimeout(2500);
+
+    // How common the word is, drawn as a bar. The band comes from a corpus,
+    // so the count is checked for being a band at all rather than for being a
+    // particular one — but a bar with every segment lit, or none, means the
+    // reading was lost between the source and the card.
+    const bar = await page.evaluate(() => {
+      const root = document.querySelector('quick-lookup-card')?.shadowRoot;
+      const cells = [...(root?.querySelectorAll('.frequency .bar span') ?? [])];
+      return {
+        cells: cells.length,
+        on: cells.filter((c) => c.classList.contains('on')).length,
+        label: root?.querySelector('.frequency .band')?.textContent ?? '',
+      };
+    });
+    record(
+      'the card says how common the word is',
+      bar.cells === 5 && bar.on >= 1 && bar.on <= 5 && bar.label.length > 0,
+      `${bar.on}/${bar.cells} — ${bar.label || 'no reading'}`,
+    );
     const sources = (await page.locator('quick-lookup-card footer span').first().textContent()) ?? '';
     console.log(`\n  ${sources.trim()}`);
 

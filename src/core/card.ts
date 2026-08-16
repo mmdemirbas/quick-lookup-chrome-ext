@@ -45,14 +45,18 @@ const LAYOUT: Record<Intent, SlotId[]> = {
   // Translation comes before the examples and the thesaurus, not after them.
   // It is the answer for a reader working in a second language, and it was
   // sitting below two sections that are supporting material.
-  word: ['headword', 'pronunciation', 'frequency', 'gloss', 'onPage', 'senses', 'translation', 'examples', 'related', 'links'],
-  phrase: ['gloss', 'onPage', 'senses', 'translation', 'examples', 'extract', 'links'],
-  entity: ['entity', 'facts', 'onPage', 'extract', 'translation', 'links'],
-  technical: ['gloss', 'onPage', 'extract', 'facts', 'entity', 'senses', 'links'],
-  citation: ['facts', 'extract', 'links'],
-  quantity: ['gloss', 'facts', 'links'],
-  foreign: ['translation', 'headword', 'senses', 'examples', 'links'],
-  unknown: ['gloss', 'onPage', 'extract', 'entity', 'links'],
+  // `inContext` sits at the foot, next to the links: it is where the word
+  // came from rather than what it means, and the reader is still looking at
+  // that sentence on the page. It earns its place once the card outlives the
+  // selection — dragged aside, or copied into a note.
+  word: ['headword', 'pronunciation', 'frequency', 'gloss', 'onPage', 'senses', 'translation', 'examples', 'related', 'inContext', 'links'],
+  phrase: ['gloss', 'onPage', 'senses', 'translation', 'examples', 'extract', 'inContext', 'links'],
+  entity: ['entity', 'facts', 'onPage', 'extract', 'translation', 'inContext', 'links'],
+  technical: ['gloss', 'onPage', 'extract', 'facts', 'entity', 'senses', 'inContext', 'links'],
+  citation: ['facts', 'extract', 'inContext', 'links'],
+  quantity: ['gloss', 'facts', 'inContext', 'links'],
+  foreign: ['translation', 'headword', 'senses', 'examples', 'inContext', 'links'],
+  unknown: ['gloss', 'onPage', 'extract', 'entity', 'inContext', 'links'],
 };
 
 export function layoutFor(intent: Intent): SlotId[] {

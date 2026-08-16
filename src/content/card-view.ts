@@ -180,6 +180,12 @@ ol.senses li:last-child { margin-bottom: 0; }
   border-left: 2px solid var(--border); color: var(--soft);
 }
 .quote:last-child { margin-bottom: 0; }
+/* The word this card is about, inside the sentence it was met in. Both a
+   background and a weight, because a colour alone is not a signal. */
+.incontext mark {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: inherit; font-weight: 600; border-radius: 3px; padding: 0 1px;
+}
 
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .chip {
@@ -239,6 +245,7 @@ const VISIBLE_SENSES = 6;
 const SLOT_LABEL: Partial<Record<SlotId, string>> = {
   senses: 'Definitions',
   examples: 'In use',
+  inContext: 'Where you met it',
   related: 'Related',
   links: 'Look up in',
   extract: 'Summary',
@@ -989,6 +996,19 @@ export class CardView {
           });
           section.append(more);
         }
+        return section;
+      }
+
+      case 'inContext': {
+        const context = slot.data as { before: string; term: string; after: string };
+        const quote = el('div', 'quote incontext');
+        quote.append(document.createTextNode(context.before));
+        // Marked rather than merely quoted: a sentence with the word buried
+        // in it reads as a quotation, and one with the word picked out reads
+        // as evidence about that word.
+        if (context.term) quote.append(el('mark', undefined, context.term));
+        quote.append(document.createTextNode(context.after));
+        section.append(el('div', 'label', label ?? id), quote);
         return section;
       }
 

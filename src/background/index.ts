@@ -155,6 +155,7 @@ async function handleLookup(
     onlineTranslation: settings.appearance.onlineTranslation,
     translationService: settings.appearance.translationService,
     packs: await packs.signature(),
+    build: VERSION,
   });
   const key = lookupKey(trimmed, decision.intent, page.host ?? '', lang, shape);
 

@@ -38,6 +38,7 @@ const MAX_EXAMPLES = 3;
 const LABEL: Partial<Record<SlotId, string>> = {
   senses: 'Definitions',
   examples: 'In use',
+  inContext: 'Where you met it',
   related: 'Related',
   extract: 'Summary',
   onPage: 'On this page',
@@ -118,6 +119,16 @@ export function blocksOf(card: Card): Block[] {
         const items = (slot.data as Array<{ text: string; translation?: string }>)
           .slice(0, MAX_EXAMPLES);
         if (items.length > 0) blocks.push({ kind: 'examples', label: LABEL.examples ?? id, items });
+        break;
+      }
+
+      case 'inContext': {
+        // The reason the sentence is on the card at all: a note read weeks
+        // later has no page behind it, and the sentence is what says why
+        // this word was worth writing down.
+        const c = slot.data as { before: string; term: string; after: string };
+        const sentence = `${c.before}${c.term}${c.after}`.trim();
+        if (sentence) blocks.push({ kind: 'quotes', label: LABEL.inContext ?? id, items: [sentence] });
         break;
       }
 

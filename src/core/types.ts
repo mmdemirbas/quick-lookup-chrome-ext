@@ -27,6 +27,7 @@ export type SlotId =
   | 'facts'
   | 'extract'
   | 'onPage'
+  | 'inContext'
   | 'links';
 
 /**
@@ -134,6 +135,12 @@ export type SlotData = {
   facts: Array<{ label: string; value: string; source: string }>;
   extract: { text: string; source: string; url?: string };
   onPage: string[];
+  /**
+   * The sentence the selection was made in, split around it. Empty `term`
+   * means the word could not be located inside its own sentence, which
+   * happens when the page shows an inflected form.
+   */
+  inContext: { before: string; term: string; after: string };
   links: LinkTarget[];
 };
 
