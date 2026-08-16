@@ -223,6 +223,59 @@ async function checkHandle(page: import('playwright').Page): Promise<void> {
 }
 
 /**
+ * The history, which is the only way to review a word after the card closed.
+ *
+ * Worth a browser check rather than a unit test because everything about it
+ * is wiring: the service worker records a lookup, the toolbar popup asks for
+ * the list over a message, and starring writes back. All three are correct in
+ * isolation and none of them is exercised by anything else — the store's own
+ * tests pass against an object in memory.
+ */
+async function checkHistory(context: BrowserContext, id: string): Promise<void> {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${id}/action.html`, { waitUntil: 'domcontentloaded' });
+
+  const rows = page.locator('#history li .word');
+  const listed = await rows
+    .first()
+    .waitFor({ timeout: 8000 })
+    .then(() => true)
+    .catch(() => false);
+  const words = listed ? await rows.allTextContents() : [];
+  record(
+    'words looked up on a page turn up in the history',
+    words.some((word) => /manifest/i.test(word)),
+    words.slice(0, 6).join(', ') || 'nothing was recorded',
+  );
+  if (!listed) {
+    await page.close();
+    return;
+  }
+
+  // Starring is what turns a log into a list worth keeping: a starred entry
+  // survives both the size cap and Clear, so Clear is the honest test of it.
+  await page.locator('#history li').first().locator('button.star').click();
+  await page.locator('#history li button.star.on').first().waitFor({ timeout: 4000 }).catch(() => {});
+  const starred = (await page.locator('#history li').first().locator('.word').textContent()) ?? '';
+
+  await page.locator('#clearHistory').click();
+  await page.waitForTimeout(400);
+  const left = await page.locator('#history li .word').allTextContents();
+  record(
+    'a starred word survives clearing the rest',
+    left.length === 1 && left[0] === starred,
+    `kept ${JSON.stringify(left)} after starring "${starred}"`,
+  );
+
+  // Left clean, or the next run starts with a word it cannot account for.
+  await page.locator('#history li').first().locator('button.star').click();
+  await page.waitForTimeout(200);
+  await page.locator('#clearHistory').click();
+  await page.waitForTimeout(300);
+  await page.close();
+}
+
+/**
  * A dictd dictionary, built here rather than downloaded.
  *
  * The real FreeDict release is 2 MB behind a network and inside a `.tar.xz`
@@ -529,6 +582,7 @@ try {
 
   const extensionId = worker.url().split('/')[2] ?? '';
   await checkTranslationDownload(context, extensionId);
+  await checkHistory(context, extensionId);
   await checkDictionaryPack(context, extensionId, origin);
 
   record('no errors from the background script', workerErrors.length === 0, workerErrors.join(' | '));
