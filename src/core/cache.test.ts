@@ -62,3 +62,16 @@ test('a card is only re-fetched for settings that change what is in it', () => {
     'an online translator with no target language cannot add anything',
   );
 });
+
+test('switching translation service is a different card, but only while one is in use', () => {
+  const google = cardShape({ glossLanguage: 'tr', onlineTranslation: true, translationService: 'google' });
+  const myMemory = cardShape({ glossLanguage: 'tr', onlineTranslation: true, translationService: 'mymemory' });
+  assert.notEqual(google, myMemory, 'the two services answer differently enough to matter');
+
+  // With the online translator off, no service is consulted, so which one is
+  // named cannot change the card and must not cost a re-fetch.
+  assert.equal(
+    cardShape({ glossLanguage: 'tr', translationService: 'google' }),
+    cardShape({ glossLanguage: 'tr', translationService: 'mymemory' }),
+  );
+});

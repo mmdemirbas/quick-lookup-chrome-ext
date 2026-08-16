@@ -5,6 +5,7 @@
  * options page: the card opens on selection, editable fields are excluded,
  * and nothing requires a key or an account.
  */
+import type { TranslationPreference } from './online-translate.ts';
 
 /** How a selection turns into a card on a given site. */
 export type TriggerMode =
@@ -46,8 +47,13 @@ export type Settings = {
      */
     onlineTranslation: boolean;
     /**
-     * Optional contact address sent with those requests. The service raises
-     * the daily allowance tenfold in exchange for one.
+     * Which online service answers. `auto` tries the keyless endpoint first
+     * and falls back to MyMemory; naming one is how to opt out of the other.
+     */
+    translationService: TranslationPreference;
+    /**
+     * Optional contact address sent with MyMemory requests. That service
+     * raises the daily allowance tenfold in exchange for one.
      */
     translationEmail: string;
   };
@@ -75,6 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
     showGloss: true,
     glossLanguage: 'tr',
     onlineTranslation: false,
+    translationService: 'auto',
     translationEmail: '',
   },
   limits: {

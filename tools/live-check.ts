@@ -316,20 +316,26 @@ for (const testCase of CASES) {
 }
 
 // The online translator is not a provider — it runs after the sources
-// settle, and only when switched on — so it needs its own check. Two short
-// strings, because the allowance is counted in characters.
+// settle, and only when switched on — so it needs its own check. Each
+// service is asked by name rather than through the chain: the chain hides a
+// service that has started refusing behind the one that still answers, which
+// is the right behaviour for a reader and the wrong one for a check.
 console.log('\nOnline translator (only used when enabled in settings)');
-for (const text of ['ephemeral', 'A manifest is a metadata file.']) {
-  const result = await translateOnline(http, {
-    text,
-    sourceLanguage: 'en',
-    targetLanguage: 'tr',
-  });
-  if (result) {
-    console.log(`  ok   "${text}" -> "${result.text}" [${result.source}]`);
-  } else {
-    console.log(`  skip "${text}" — no translation returned`);
-    skips++;
+for (const service of ['google', 'mymemory'] as const) {
+  // Two short strings, because MyMemory's allowance counts characters.
+  for (const text of ['ephemeral', 'A manifest is a metadata file.']) {
+    const result = await translateOnline(http, {
+      text,
+      sourceLanguage: 'en',
+      targetLanguage: 'tr',
+      preference: service,
+    });
+    if (result) {
+      console.log(`  ok   [${service}] "${text}" -> "${result.text}"`);
+    } else {
+      console.log(`  skip [${service}] "${text}" — no translation returned`);
+      skips++;
+    }
   }
 }
 

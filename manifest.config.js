@@ -21,6 +21,7 @@ export const DATA_HOSTS = [
   'https://crates.io/*', // package facts, asked only on Rust pages
   'https://developer.mozilla.org/*', // web platform reference, asked only on web pages
   'https://api.mymemory.translated.net/*', // translation, only when switched on in settings
+  'https://translate.googleapis.com/*', // translation, only when switched on in settings
 ];
 
 const BASE = {

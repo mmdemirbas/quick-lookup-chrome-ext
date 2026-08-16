@@ -99,7 +99,7 @@ page you were on. It goes to the clipboard and nowhere else.
 | `contextMenus` | Right-click lookup on a selection |
 | `activeTab` | Reading the selection when triggered by the shortcut |
 | `<all_urls>` content script | The selection handle must be able to appear on any page. The always-on script only listens for selection changes; everything else is loaded on first use |
-| Twelve host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Wikidata, Wikimedia images, Stack Exchange, npm, PyPI, crates.io, MDN and MyMemory. Each is listed with its reason in `manifest.config.js`. Stack Exchange, the registries and MDN are asked only for technical terms, the registries only on a page about that ecosystem, and MyMemory only if you switch it on |
+| Thirteen host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Wikidata, Wikimedia images, Stack Exchange, npm, PyPI, crates.io, MDN, MyMemory and Google Translate. Each is listed with its reason in `manifest.config.js`. Stack Exchange, the registries and MDN are asked only for technical terms, the registries only on a page about that ecosystem, and the two translators only if you switch translation on |
 
 ## Privacy
 
@@ -111,7 +111,10 @@ page you were on. It goes to the clipboard and nowhere else.
 - One setting, off by default, sends the selection to a translation
   service for machines whose browser has no translator of its own. It is
   the only thing here that sends your text somewhere it was not already
-  going, and the card names the service that answered.
+  going, and the card names the service that answered. Two services are
+  available and either can be chosen alone: Google's keyless endpoint,
+  which has no allowance to exhaust, and MyMemory, which is documented
+  but limited to 5,000 characters a day.
 - Translation and ranking run on the device when the browser provides a
   model, and are skipped when it does not.
 - Everything stored stays local. Preferences sync; the cache does not.

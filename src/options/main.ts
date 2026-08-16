@@ -1,5 +1,6 @@
 /** Settings page. Reads and writes through the service worker. */
 import { DEFAULT_SETTINGS, mergeSettings, type Modifier, type Settings, type TriggerMode } from '../core/settings.ts';
+import type { TranslationPreference } from '../core/online-translate.ts';
 import { ext } from '../platform/browser.ts';
 import { downloadTranslation, translationAvailability } from '../platform/ai.ts';
 import type { StatusResponse } from '../shared/messages.ts';
@@ -19,6 +20,7 @@ const fields = {
   showGloss: $<HTMLInputElement>('showGloss'),
   glossLanguage: $<HTMLSelectElement>('glossLanguage'),
   onlineTranslation: $<HTMLInputElement>('onlineTranslation'),
+  translationService: $<HTMLSelectElement>('translationService'),
   translationEmail: $<HTMLInputElement>('translationEmail'),
 };
 
@@ -34,8 +36,9 @@ function fill(next: Settings): void {
   fields.showGloss.checked = next.appearance.showGloss;
   fields.glossLanguage.value = next.appearance.glossLanguage;
   fields.onlineTranslation.checked = next.appearance.onlineTranslation;
+  fields.translationService.value = next.appearance.translationService;
   fields.translationEmail.value = next.appearance.translationEmail;
-  fields.translationEmail.disabled = !next.appearance.onlineTranslation;
+  syncOnlineFields();
   renderSites();
 }
 
@@ -55,6 +58,7 @@ function collect(): Settings {
       showGloss: fields.showGloss.checked,
       glossLanguage: fields.glossLanguage.value,
       onlineTranslation: fields.onlineTranslation.checked,
+      translationService: fields.translationService.value as TranslationPreference,
       translationEmail: fields.translationEmail.value.trim(),
     },
   });
@@ -167,23 +171,24 @@ function renderStatus(status: StatusResponse): void {
 /**
  * What to do when the browser exposes no translator at all.
  *
- * Measured, because the obvious advice is wrong: Brave's flags page lists
- * 760 experiments and not one of them is the translation API. It exists
- * only as a launch switch, so telling the reader to "enable a flag" sends
- * them hunting for something that is not there. Chrome needs nothing.
+ * The on-device translator is the nicest answer and the least available one,
+ * so this says what works *here* first and leaves the browser switch as a
+ * footnote. Measured, because the obvious advice is wrong twice over: Brave's
+ * flags page lists 760 experiments and not one of them is the translation
+ * API — it exists only as a launch argument, which applies to that launch and
+ * no other, and is therefore not something to build a daily habit on.
  */
 function showAbsentTranslator(): void {
   const row = $('translationRow');
   row.parentElement?.append(
-    turningOn('To translate in Brave', [
-      'Quit Brave completely.',
-      'Run: open -a "Brave Browser" --args --enable-features=TranslationAPI',
-      'Brave has no setting for this, so it applies only to launches started that way.',
-      'Come back here and press Download.',
+    turningOn('Nothing needs it', [
+      'Turkish head-words come from the dictionary sources and are already on.',
+      'An installed dictionary pack answers offline, with no allowance at all.',
+      'For whole sentences, switch on the online translator above.',
     ]),
-    turningOn('Or use Chrome', [
-      'Chrome 138 and later expose the translator with no flags at all.',
-      'Load the extension there and press Download.',
+    turningOn('If you want it anyway', [
+      'Chrome 138 and later expose the translator with no switch at all — load the extension there and press Download.',
+      'Brave has no setting for it. It is a launch argument, so it would apply only to launches started that way.',
     ]),
   );
 }
@@ -299,9 +304,15 @@ void ext.runtime.sendMessage({ type: 'QL_GET_STATUS' }).then((status: StatusResp
 fields.glossLanguage.addEventListener('change', () => void renderTranslation());
 void renderTranslation();
 
-/** The address only means anything when the online translator is in use. */
-function syncEmailField(): void {
-  fields.translationEmail.disabled = !fields.onlineTranslation.checked;
+/**
+ * Neither the service nor the address means anything while the online
+ * translator is switched off, and the address only reaches MyMemory.
+ */
+function syncOnlineFields(): void {
+  const online = fields.onlineTranslation.checked;
+  fields.translationService.disabled = !online;
+  fields.translationEmail.disabled = !online || fields.translationService.value === 'google';
 }
-fields.onlineTranslation.addEventListener('change', syncEmailField);
-syncEmailField();
+fields.onlineTranslation.addEventListener('change', syncOnlineFields);
+fields.translationService.addEventListener('change', syncOnlineFields);
+syncOnlineFields();

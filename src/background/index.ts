@@ -118,6 +118,7 @@ async function addGloss(card: Card, targetLanguage: string): Promise<boolean> {
           text: subject,
           sourceLanguage: 'en',
           targetLanguage,
+          preference: settings.appearance.translationService,
           ...(settings.appearance.translationEmail
             ? { email: settings.appearance.translationEmail }
             : {}),
@@ -160,6 +161,7 @@ async function handleLookup(
       ? { glossLanguage: settings.appearance.glossLanguage }
       : {}),
     onlineTranslation: settings.appearance.onlineTranslation,
+    translationService: settings.appearance.translationService,
   });
   const key = lookupKey(trimmed, decision.intent, page.host ?? '', lang, shape);
 

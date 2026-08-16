@@ -152,15 +152,31 @@
             Use an online translator when this browser has none
             <span class="hint">
               Off by default. This is the only setting that sends the selected text off
-              the device — to MyMemory, which allows 5,000 characters a day.
+              the device. The card always names the service that answered.
             </span>
           </label>
           <input id="onlineTranslation" type="checkbox" />
         </div>
         <div class="row">
+          <label for="translationService">
+            Which service
+            <span class="hint">
+              Google is the endpoint its own web page calls: no key, no allowance to run
+              out, better Turkish — and undocumented, so it can stop working without
+              notice. MyMemory is documented and stable but allows 5,000 characters a day.
+              Automatic tries Google first and falls back.
+            </span>
+          </label>
+          <select id="translationService">
+            <option value="auto">Automatic</option>
+            <option value="google">Google only</option>
+            <option value="mymemory">MyMemory only</option>
+          </select>
+        </div>
+        <div class="row">
           <label for="translationEmail">
-            Contact address for the translator
-            <span class="hint">Optional. Raises the allowance to 50,000 characters a day.</span>
+            Contact address for MyMemory
+            <span class="hint">Optional. Raises its allowance to 50,000 characters a day.</span>
           </label>
           <input id="translationEmail" type="email" placeholder="you@example.com" />
         </div>
