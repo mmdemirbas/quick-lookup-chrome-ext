@@ -8,7 +8,7 @@
 import { runLookup } from '../core/lookup.ts';
 import { extractSignals } from '../core/intent/signals.ts';
 import { routeIntent } from '../core/intent/router.ts';
-import { LruCache, lookupKey } from '../core/cache.ts';
+import { LruCache, cardShape, lookupKey } from '../core/cache.ts';
 import { PersistentStore } from '../core/store.ts';
 import { localStore } from '../platform/storage.ts';
 import { DEFAULT_SETTINGS, mergeSettings, type Settings } from '../core/settings.ts';
@@ -155,7 +155,13 @@ async function handleLookup(
   const trimmed = text.slice(0, settings.limits.maxSelectionChars);
   const lang = uiLanguage().split('-')[0] || 'en';
   const decision = routeIntent(extractSignals(trimmed, page), lang);
-  const key = lookupKey(trimmed, decision.intent, page.host ?? '', lang);
+  const shape = cardShape({
+    ...(settings.appearance.showGloss
+      ? { glossLanguage: settings.appearance.glossLanguage }
+      : {}),
+    onlineTranslation: settings.appearance.onlineTranslation,
+  });
+  const key = lookupKey(trimmed, decision.intent, page.host ?? '', lang, shape);
 
   const remember = (card: Card) =>
     persistent.recordLookup({
