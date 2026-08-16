@@ -10,6 +10,7 @@ one, only ranks and translates — it is never the source of a fact.
 
 Design and reasoning: `SPEC.md`.
 Landscape research and the decisions behind it: `docs/redesign-2026-08-11.md`.
+Competitor survey, defect causes and the current roadmap: `docs/round-2026-08-16.md`.
 
 ## Build and load
 
