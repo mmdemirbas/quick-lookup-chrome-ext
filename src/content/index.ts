@@ -240,6 +240,12 @@ document.addEventListener(
       void card.copyCurrent('markdown');
       return;
     }
+    // And the same route to hearing it.
+    if (card.isOpen && event.altKey && !event.metaKey && !event.ctrlKey && event.code === 'KeyS') {
+      event.preventDefault();
+      card.speakQuery();
+      return;
+    }
     // Guard two: copying is a different intention from looking up.
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
       cancelDwell();

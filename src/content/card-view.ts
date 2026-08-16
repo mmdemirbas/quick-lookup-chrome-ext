@@ -15,6 +15,7 @@
  */
 import type { Card, Related, Sense, SlotId } from '../core/types.ts';
 import { formatCard, type ExportContext, type ExportFormat } from '../core/export.ts';
+import { speakable, utteranceLanguage } from '../core/speech.ts';
 
 const GAP = 10;
 const MARGIN = 8;
@@ -150,6 +151,7 @@ button.chip[data-state='failed'] { border-color: var(--warn); color: var(--warn)
 
 .translation { color: var(--soft); }
 .translation .lang { font-size: 11px; color: var(--faint); margin-right: 6px; text-transform: uppercase; }
+button.icon.say { font-size: 12px; padding: 1px 4px; vertical-align: baseline; margin-left: 4px; }
 
 footer {
   padding: 7px 13px 9px; border-top: 1px solid var(--border);
@@ -248,6 +250,24 @@ function legacyCopy(text: string): boolean {
   return copied;
 }
 
+/**
+ * Speaks a string, cancelling whatever was being said.
+ *
+ * Cancelling first rather than queueing: pressing the button twice means
+ * "say it again", never "say it twice". Returns false when the browser has
+ * no speech engine or the text is not worth speaking, so the caller can
+ * leave the control off the card rather than offer one that does nothing.
+ */
+function speak(text: string, lang: string): boolean {
+  const engine = window.speechSynthesis;
+  if (!engine || typeof SpeechSynthesisUtterance !== 'function' || !speakable(text)) return false;
+  engine.cancel();
+  const utterance = new SpeechSynthesisUtterance(text.trim());
+  utterance.lang = lang;
+  engine.speak(utterance);
+  return true;
+}
+
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
@@ -273,6 +293,7 @@ export class CardView {
   /** The card on screen. Held so it can be copied without asking for it again. */
   #current: Card | undefined;
   #actionButtons = new Map<ExportFormat, HTMLButtonElement>();
+  #speaker: HTMLButtonElement | undefined;
 
   constructor(private readonly callbacks: CardViewCallbacks) {}
 
@@ -304,6 +325,13 @@ export class CardView {
     const title = el('div', 'query');
     const intent = el('span', 'intent');
 
+    // Next to the word it pronounces, not in a toolbar: the reader should
+    // never have to work out which control acts on which text.
+    const speaker = el('button', 'icon', '🔊');
+    speaker.title = 'Read this aloud';
+    speaker.setAttribute('aria-label', 'Read this aloud');
+    speaker.addEventListener('click', () => this.speakQuery());
+
     const quiet = el('button', 'icon', '⃠');
     quiet.title = 'Stop opening automatically on this site';
     quiet.setAttribute('aria-label', 'Stop opening automatically on this site');
@@ -317,7 +345,8 @@ export class CardView {
     close.setAttribute('aria-label', 'Close');
     close.addEventListener('click', () => this.callbacks.onClose());
 
-    header.append(title, intent, quiet, close);
+    header.append(title, intent, speaker, quiet, close);
+    this.#speaker = speaker;
 
     const body = el('div', 'body');
     const footer = el('footer');
@@ -426,6 +455,7 @@ export class CardView {
     this.#current = undefined;
     this.#actionButtons.clear();
     this.#title.textContent = query;
+    this.#showSpeaker(query);
     this.#intent.textContent = '';
     this.#footer.textContent = '';
     this.#body.replaceChildren(this.#skeletonSection());
@@ -444,6 +474,7 @@ export class CardView {
 
     this.#current = card;
     this.#title.textContent = card.query;
+    this.#showSpeaker(card.query);
     this.#intent.textContent = card.intent;
 
     const sections: HTMLElement[] = [];
@@ -494,6 +525,31 @@ export class CardView {
 
     section.append(el('div', 'label', 'Copy'), chips);
     return section;
+  }
+
+  /**
+   * Reads the selection aloud, in the language the page is written in.
+   *
+   * The page's own `lang` is the best evidence available: the words came
+   * from there, so that is how they are meant to sound. Nothing on the card
+   * records a source language, and guessing from the characters would get
+   * every English word in a Turkish article wrong.
+   */
+  speakQuery(): boolean {
+    const query = this.#current?.query ?? this.#title?.textContent ?? '';
+    this.#engage();
+    return speak(query, utteranceLanguage(document.documentElement.lang));
+  }
+
+  /**
+   * A control that cannot do anything should not be on the card. Speech is
+   * missing in some browsers and refused for a selection long enough to be
+   * a paragraph, and both are known before the button is drawn.
+   */
+  #showSpeaker(query: string): void {
+    if (!this.#speaker) return;
+    const possible = Boolean(window.speechSynthesis) && speakable(query);
+    this.#speaker.hidden = !possible;
   }
 
   /**
@@ -597,6 +653,17 @@ export class CardView {
         };
         const row = el('div', 'translation');
         row.append(el('span', 'lang', t.lang), document.createTextNode(t.text));
+
+        // Its own speaker, in its own language. Reading `bölme` with an
+        // English voice is not a pronunciation of anything.
+        const say = el('button', 'icon say', '🔊');
+        say.title = `Read the ${t.lang} aloud`;
+        say.setAttribute('aria-label', `Read the ${t.lang} translation aloud`);
+        say.addEventListener('click', () => {
+          this.#engage();
+          speak(t.text, utteranceLanguage(t.lang));
+        });
+        row.append(say);
         section.append(row);
 
         // Dictionary head-words, when the translated line is not simply a

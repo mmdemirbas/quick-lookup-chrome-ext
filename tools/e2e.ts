@@ -337,6 +337,27 @@ try {
       );
     }
 
+    // The real engine, not a stub. A content script runs in an isolated
+    // world, so replacing `speechSynthesis.speak` from the page would
+    // replace a different object and record nothing — which is exactly what
+    // the first version of this check did. `speaking` is shared state and
+    // tells the truth about whether the button reached the engine.
+    const speaker = page.locator(
+      'quick-lookup-card header button[aria-label="Read this aloud"]',
+    );
+    const wasSpeaking = await page.evaluate(() => speechSynthesis.speaking);
+    await speaker.click();
+    const speaking = await page
+      .waitForFunction(() => speechSynthesis.speaking, undefined, { timeout: 3000 })
+      .then(() => true)
+      .catch(() => false);
+    record(
+      'the card reads the selection aloud',
+      !wasSpeaking && speaking,
+      `voices=${await page.evaluate(() => speechSynthesis.getVoices().length)}`,
+    );
+    await page.evaluate(() => speechSynthesis.cancel());
+
     // Escape must close it, because that is the reader's escape hatch.
     await page.keyboard.press('Escape');
     const closed = await card
