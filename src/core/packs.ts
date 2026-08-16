@@ -24,6 +24,7 @@
  * All three keep their definitions in one blob addressed by offset and
  * length, which is why the record type below is shared.
  */
+import { toIso1 } from './language.ts';
 
 export type PackFormat = 'dictd' | 'stardict' | 'tsv';
 
@@ -331,21 +332,13 @@ export function candidateForms(word: string): string[] {
  * form shows it and the reader can correct it, because a pack named after
  * its publisher tells us nothing.
  */
-const ISO3_TO_ISO1: Record<string, string> = {
-  ara: 'ar', ces: 'cs', cze: 'cs', deu: 'de', ell: 'el', eng: 'en', fin: 'fi',
-  fra: 'fr', ger: 'de', gre: 'el', hun: 'hu', ita: 'it', jpn: 'ja', kur: 'ku',
-  nld: 'nl', pol: 'pl', por: 'pt', rus: 'ru', spa: 'es', swe: 'sv', tur: 'tr',
-  ukr: 'uk', zho: 'zh',
-};
-
 export function languagePairFromName(name: string): { source: string; target: string } | undefined {
   const match = /(?:^|[^a-z])([a-z]{2,3})[-_]([a-z]{2,3})(?:[^a-z]|$)/i.exec(name.toLowerCase());
   const from = match?.[1];
   const to = match?.[2];
   if (!from || !to) return undefined;
 
-  const normalise = (code: string) => ISO3_TO_ISO1[code] ?? (code.length === 2 ? code : undefined);
-  const source = normalise(from);
-  const target = normalise(to);
+  const source = toIso1(from);
+  const target = toIso1(to);
   return source && target ? { source, target } : undefined;
 }

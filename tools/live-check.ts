@@ -12,13 +12,7 @@
 import { extractSignals } from '../src/core/intent/signals.ts';
 import { routeIntent } from '../src/core/intent/router.ts';
 import { runLookup } from '../src/core/lookup.ts';
-import { freeDictionaryProvider } from '../src/core/providers/free-dictionary.ts';
-import { wiktionaryProvider } from '../src/core/providers/wiktionary.ts';
-import { datamuseProvider } from '../src/core/providers/datamuse.ts';
-import { wikipediaProvider } from '../src/core/providers/wikipedia.ts';
-import { stackExchangeProvider } from '../src/core/providers/stackexchange.ts';
-import { registryProvider } from '../src/core/providers/registry.ts';
-import { mdnProvider } from '../src/core/providers/mdn.ts';
+import { PROVIDERS } from '../src/core/providers/all.ts';
 import { findDefinitions } from '../src/core/page-definition.ts';
 import { translateOnline } from '../src/core/online-translate.ts';
 import type { Card, HttpClient, PageContext } from '../src/core/types.ts';
@@ -35,16 +29,6 @@ const http: HttpClient = {
     return (await response.json()) as T;
   },
 };
-
-const providers = [
-  wikipediaProvider,
-  stackExchangeProvider,
-  registryProvider,
-  mdnProvider,
-  freeDictionaryProvider,
-  wiktionaryProvider,
-  datamuseProvider,
-];
 
 type Case = {
   text: string;
@@ -106,7 +90,10 @@ const CASES: Case[] = [
     text: 'ephemeral',
     page: { host: 'en.wikipedia.org', title: 'Reading' },
     glossLanguage: 'tr',
-    needs: ['free-dictionary', 'wiktionary', 'datamuse'],
+    // Tatoeba is listed so that its thin coverage skips the case instead of
+    // failing it. `ephemeral` has exactly one sentence there, which is one
+    // more than most technical vocabulary has.
+    needs: ['free-dictionary', 'wiktionary', 'datamuse', 'tatoeba'],
     expect: (card) => {
       if ((card.slots.senses?.data?.length ?? 0) < 2) {
         return 'expected at least two senses for a common English word';
@@ -116,9 +103,14 @@ const CASES: Case[] = [
       // so a wrong endpoint still fills the related slot and looks healthy.
       const frequency = card.slots.frequency?.data;
       if (!frequency) return 'expected a frequency for a word the corpus knows';
-      return frequency.band === 3
+      if (frequency.band !== 3) {
+        return `expected "ephemeral" in band 3, got ${frequency.band} (${frequency.perMillion}/M)`;
+      }
+      const example = card.slots.examples?.data?.[0];
+      if (!example) return 'expected a real sentence using the word';
+      return example.translation
         ? undefined
-        : `expected "ephemeral" in band 3, got ${frequency.band} (${frequency.perMillion}/M)`;
+        : 'expected the sentence to carry its Turkish translation';
     },
   },
   {
@@ -246,7 +238,10 @@ for (const testCase of CASES) {
       ...(testCase.glossLanguage ? { glossLanguage: testCase.glossLanguage } : {}),
     },
     decision,
-    { http, providers },
+    // The same list the service worker uses. Kept in one place because it was
+    // in two, and a provider added to that one was silently missing from this
+    // one — the smoke test kept passing and simply never asked the new source.
+    { http, providers: PROVIDERS },
     {
       onUpdate: (partial) => {
         if (!firstEvidenceMs && partial.sources.some((s) => s !== 'links')) {
@@ -286,6 +281,16 @@ for (const testCase of CASES) {
     console.log(
       `     ${i + 1}. [${sense.partOfSpeech ?? '—'}] ${sense.definition.slice(0, 92)} (${sense.source})`,
     );
+  }
+
+  const frequency = card.slots.frequency?.data;
+  if (frequency) {
+    console.log(`     how common: ${frequency.label} (${frequency.perMillion}/M, band ${frequency.band})`);
+  }
+
+  for (const example of card.slots.examples?.data ?? []) {
+    console.log(`     in use: ${example.text}`);
+    if (example.translation) console.log(`             ${example.translation}`);
   }
 
   const related = card.slots.related?.data ?? [];

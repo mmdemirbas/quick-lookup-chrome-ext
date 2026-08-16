@@ -20,6 +20,7 @@ export type SlotId =
   | 'frequency'
   | 'gloss'
   | 'senses'
+  | 'examples'
   | 'related'
   | 'translation'
   | 'entity'
@@ -110,6 +111,12 @@ export type SlotData = {
   frequency: Frequency;
   gloss: string;
   senses: Sense[];
+  /**
+   * The word in a real sentence, with that sentence translated where a
+   * translation exists. Separate from `Sense.example`, which is a dictionary's
+   * own illustration of one meaning and belongs beside that meaning.
+   */
+  examples: Array<{ text: string; translation?: string; source: string }>;
   related: Related[];
   /**
    * `text` renders the selection in the target language. `equivalents` are

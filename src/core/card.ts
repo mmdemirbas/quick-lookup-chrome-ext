@@ -42,13 +42,16 @@ const LAYOUT: Record<Intent, SlotId[]> = {
   // Frequency sits with pronunciation rather than at the foot: both are one
   // short line identifying the word itself, and for a reader deciding whether
   // a word is worth learning, how common it is belongs beside how it sounds.
-  word: ['headword', 'pronunciation', 'frequency', 'gloss', 'onPage', 'senses', 'related', 'translation', 'links'],
-  phrase: ['gloss', 'onPage', 'senses', 'extract', 'translation', 'links'],
+  // Translation comes before the examples and the thesaurus, not after them.
+  // It is the answer for a reader working in a second language, and it was
+  // sitting below two sections that are supporting material.
+  word: ['headword', 'pronunciation', 'frequency', 'gloss', 'onPage', 'senses', 'translation', 'examples', 'related', 'links'],
+  phrase: ['gloss', 'onPage', 'senses', 'translation', 'examples', 'extract', 'links'],
   entity: ['entity', 'facts', 'onPage', 'extract', 'translation', 'links'],
   technical: ['gloss', 'onPage', 'extract', 'facts', 'entity', 'senses', 'links'],
   citation: ['facts', 'extract', 'links'],
   quantity: ['gloss', 'facts', 'links'],
-  foreign: ['translation', 'headword', 'senses', 'links'],
+  foreign: ['translation', 'headword', 'senses', 'examples', 'links'],
   unknown: ['gloss', 'onPage', 'extract', 'entity', 'links'],
 };
 
@@ -173,6 +176,7 @@ function mergeSlot<K extends SlotId>(
         ? offered
         : held) as SlotData[K];
     }
+    case 'examples':
     case 'links':
     case 'facts': {
       const merged = [...(existing as unknown[]), ...(incoming as unknown[])];

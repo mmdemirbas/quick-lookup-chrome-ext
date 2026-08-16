@@ -124,6 +124,14 @@ section[hidden] { display: none; }
 }
 .frequency .bar span.on { background: var(--accent); }
 .frequency .band { letter-spacing: .01em; }
+.examples { list-style: none; margin: 0; padding: 0; }
+/* The gap below an example is larger than the gap above its translation, so
+   the translation reads as belonging to the sentence over it rather than
+   floating between two of them. */
+.examples li { margin: 0 0 11px; }
+.examples li:last-child { margin-bottom: 0; }
+.examples .sentence { font-size: 13.5px; }
+.examples .rendered { color: var(--soft); font-size: 12.5px; margin-top: 0; }
 
 ol.senses { margin: 0; padding-left: 18px; }
 ol.senses li { margin-bottom: 7px; }
@@ -182,6 +190,7 @@ footer {
 
 const SLOT_LABEL: Partial<Record<SlotId, string>> = {
   senses: 'Definitions',
+  examples: 'In use',
   related: 'Related',
   links: 'Look up in',
   extract: 'Summary',
@@ -663,6 +672,31 @@ export class CardView {
           if (sense.partOfSpeech) item.append(el('span', 'pos', sense.partOfSpeech));
           item.append(document.createTextNode(sense.definition));
           if (sense.example) item.append(el('em', 'example', sense.example));
+          list.append(item);
+        }
+        section.append(el('div', 'label', label ?? id), list);
+        return section;
+      }
+
+      case 'examples': {
+        const examples = slot.data as Array<{ text: string; translation?: string }>;
+        const list = el('ul', 'examples');
+        for (const example of examples) {
+          const item = el('li');
+          item.append(el('span', 'sentence', example.text));
+
+          // A sentence is the thing worth hearing, and hearing it was asked
+          // for by name. The header's speaker reads the word alone.
+          const say = el('button', 'icon say', '🔊');
+          say.title = 'Read this sentence aloud';
+          say.setAttribute('aria-label', `Read aloud: ${example.text}`);
+          say.addEventListener('click', () => {
+            this.#engage();
+            speak(example.text, utteranceLanguage(document.documentElement.lang));
+          });
+          item.append(say);
+
+          if (example.translation) item.append(el('div', 'rendered', example.translation));
           list.append(item);
         }
         section.append(el('div', 'label', label ?? id), list);

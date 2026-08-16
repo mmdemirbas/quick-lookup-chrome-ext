@@ -125,7 +125,7 @@ page you were on. It goes to the clipboard and nowhere else.
 | `unlimitedStorage` | Installed dictionary packs. One is about five megabytes of definitions, and the default extension quota is not much more than that in total |
 | `activeTab` | Reading the selection when triggered by the shortcut |
 | `<all_urls>` content script | The selection handle must be able to appear on any page. The always-on script only listens for selection changes; everything else is loaded on first use |
-| Thirteen host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Wikidata, Wikimedia images, Stack Exchange, npm, PyPI, crates.io, MDN, MyMemory and Google Translate. Each is listed with its reason in `manifest.config.js`. Stack Exchange, the registries and MDN are asked only for technical terms, the registries only on a page about that ecosystem, and the two translators only if you switch translation on |
+| Fourteen host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Tatoeba, Wikidata, Wikimedia images, Stack Exchange, npm, PyPI, crates.io, MDN, MyMemory and Google Translate. Each is listed with its reason in `manifest.config.js`. Stack Exchange, the registries and MDN are asked only for technical terms, the registries only on a page about that ecosystem, and the two translators only if you switch translation on |
 
 ## Privacy
 

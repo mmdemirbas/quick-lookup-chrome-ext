@@ -51,6 +51,15 @@ function wordCard(): Card {
         { word: 'ephemeral nature', kind: 'collocation', source: 'datamuse' },
         { word: 'ephemeral stream', kind: 'collocation', source: 'datamuse' },
       ],
+      // Real Tatoeba sentences, with the translations they actually carry.
+      examples: [
+        {
+          text: "Love's pleasure is ephemeral; regret eternal.",
+          translation: 'Aşkın zevki geçicidir; pişmanlığı sonsuzdur.',
+          source: 'tatoeba',
+        },
+        { text: 'Fame is ephemeral.', source: 'tatoeba' },
+      ],
       translation: { text: 'kısa ömürlü, geçici', lang: 'tr', source: 'on-device' },
       links: linksFor('word', 'ephemeral', 'en'),
     },

@@ -12,15 +12,8 @@ import { LruCache, cardShape, lookupKey } from '../core/cache.ts';
 import { PersistentStore } from '../core/store.ts';
 import { localStore } from '../platform/storage.ts';
 import { DEFAULT_SETTINGS, mergeSettings, type Settings } from '../core/settings.ts';
-import type { Card, LookupRequest, Provider } from '../core/types.ts';
-import { freeDictionaryProvider } from '../core/providers/free-dictionary.ts';
-import { wiktionaryProvider } from '../core/providers/wiktionary.ts';
-import { datamuseProvider } from '../core/providers/datamuse.ts';
-import { wikipediaProvider } from '../core/providers/wikipedia.ts';
-import { stackExchangeProvider } from '../core/providers/stackexchange.ts';
-import { registryProvider } from '../core/providers/registry.ts';
-import { mdnProvider } from '../core/providers/mdn.ts';
-import { packProvider } from '../core/providers/pack.ts';
+import type { Card, LookupRequest } from '../core/types.ts';
+import { PROVIDERS } from '../core/providers/all.ts';
 import { ext } from '../platform/browser.ts';
 import { packLookup } from '../platform/packs.ts';
 import { createHttpClient } from '../platform/http.ts';
@@ -37,19 +30,6 @@ const http = createHttpClient(VERSION);
  * the metadata read behind this is what keeps it cheap when no pack exists.
  */
 const packs = packLookup();
-
-const PROVIDERS: Provider[] = [
-  // Installed packs lead: they are local, so they are the one source that
-  // can fill a slot before the first request has left the machine.
-  packProvider,
-  wikipediaProvider,
-  stackExchangeProvider,
-  registryProvider,
-  mdnProvider,
-  freeDictionaryProvider,
-  wiktionaryProvider,
-  datamuseProvider,
-];
 
 let settings: Settings = DEFAULT_SETTINGS;
 

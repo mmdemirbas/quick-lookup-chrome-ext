@@ -33,9 +33,11 @@ const MAX_SENSES = 6;
 const MAX_RELATED = 14;
 const MAX_FACTS = 8;
 const MAX_PRONUNCIATIONS = 3;
+const MAX_EXAMPLES = 3;
 
 const LABEL: Partial<Record<SlotId, string>> = {
   senses: 'Definitions',
+  examples: 'In use',
   related: 'Related',
   extract: 'Summary',
   onPage: 'On this page',
@@ -53,7 +55,9 @@ type Block =
   | { kind: 'lead'; text: string }
   | { kind: 'pronunciation'; items: string[] }
   | { kind: 'entity'; title: string; description?: string; extract?: string }
+  | { kind: 'aside'; text: string }
   | { kind: 'senses'; label: string; items: Sense[] }
+  | { kind: 'examples'; label: string; items: Array<{ text: string; translation?: string }> }
   | { kind: 'quotes'; label: string; items: string[] }
   | { kind: 'chips'; label: string; items: string[] }
   | { kind: 'pairs'; label: string; items: Array<{ label: string; value: string }> }
@@ -99,6 +103,21 @@ export function blocksOf(card: Card): Block[] {
         if (items.length > 0) {
           blocks.push({ kind: 'senses', label: LABEL.senses ?? id, items });
         }
+        break;
+      }
+
+      case 'frequency': {
+        // The band, not the raw figure: a note is read later, when "1.6 per
+        // million" has no scale beside it to be compared against.
+        const f = slot.data as { label: string };
+        blocks.push({ kind: 'aside', text: f.label });
+        break;
+      }
+
+      case 'examples': {
+        const items = (slot.data as Array<{ text: string; translation?: string }>)
+          .slice(0, MAX_EXAMPLES);
+        if (items.length > 0) blocks.push({ kind: 'examples', label: LABEL.examples ?? id, items });
         break;
       }
 
@@ -218,6 +237,20 @@ function toText(card: Card, context: ExportContext): string {
           ].join('\n'),
         );
         break;
+      case 'aside':
+        parts.push(block.text);
+        break;
+      case 'examples':
+        parts.push(
+          [
+            `${block.label}:`,
+            ...block.items.flatMap((example) => [
+              `  "${example.text}"`,
+              ...(example.translation ? [`    ${example.translation}`] : []),
+            ]),
+          ].join('\n'),
+        );
+        break;
       case 'quotes':
         parts.push([`${block.label}:`, ...block.items.map((s) => `  "${s}"`)].join('\n'));
         break;
@@ -308,6 +341,29 @@ function toMarkdown(card: Card, context: ExportContext): string {
               return `${index + 1}. ${pos}${escapeMarkdown(sense.definition)}${example}`;
             }),
           ].join('\n'),
+        );
+        break;
+      case 'aside':
+        // Beside the pronunciation on the line under the heading. On its own
+        // it is never what the note is for, but it is worth having later.
+        subtitle.push(block.text);
+        break;
+      case 'examples':
+        parts.push(
+          [
+            `### ${block.label}`,
+            '',
+            // The blank line after each is load-bearing: consecutive `>`
+            // lines merge into one quote, which would run every example
+            // together with its own translation and the next sentence.
+            ...block.items.flatMap((example) => [
+              `> ${escapeMarkdown(example.text)}`,
+              ...(example.translation ? [`>`, `> ${escapeMarkdown(example.translation)}`] : []),
+              '',
+            ]),
+          ]
+            .join('\n')
+            .trimEnd(),
         );
         break;
       case 'quotes':

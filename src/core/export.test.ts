@@ -240,3 +240,56 @@ test('angle brackets and ampersands are escaped for anki, which reads fields as 
   assert.equal(front, 'AT&amp;T');
   assert.match(back ?? '', /&lt;abbr&gt;AT&amp;T&lt;\/abbr&gt;/);
 });
+
+/** A word card with the two sections the note used to drop on the floor. */
+function ephemeralCard(): Card {
+  const card = createCard('r2', 'ephemeral', 'word');
+  applyResult(card, 'free-dictionary', {
+    slots: {
+      pronunciation: [{ ipa: '/ɪfˈɛməɹəl/', dialect: 'UK' }],
+      senses: [{ definition: 'Lasting for a short period of time.', source: 'wiktionary' }],
+    },
+  });
+  applyResult(card, 'datamuse', {
+    slots: {
+      frequency: { perMillion: 1.600203, band: 3, label: 'fairly common', source: 'datamuse' },
+    },
+  });
+  applyResult(card, 'tatoeba', {
+    slots: {
+      examples: [
+        {
+          text: "Love's pleasure is ephemeral; regret eternal.",
+          translation: 'Aşkın zevki geçicidir; pişmanlığı sonsuzdur.',
+          source: 'tatoeba',
+        },
+        { text: 'Fame is ephemeral.', source: 'tatoeba' },
+      ],
+    },
+  });
+  return finalise(card);
+}
+
+test('a sentence and its translation survive being copied out', () => {
+  // Both slots reach the note through an explicit case. The switch that
+  // builds the blocks ends in `default: break`, so a slot nobody added a case
+  // for is dropped in silence — the note simply comes out shorter.
+  const text = formatCard(ephemeralCard(), 'text', CONTEXT);
+  assert.match(text, /In use:\n {2}"Love's pleasure is ephemeral; regret eternal\."/);
+  assert.match(text, /\n {4}Aşkın zevki geçicidir; pişmanlığı sonsuzdur\./);
+  assert.match(text, /"Fame is ephemeral\."/);
+  assert.match(text, /fairly common/, 'and how common the word is');
+});
+
+test('markdown quotes each example apart from the next', () => {
+  const markdown = formatCard(ephemeralCard(), 'markdown', CONTEXT);
+  // Consecutive `>` lines merge into one blockquote, so without the blank
+  // line every example, its translation and the next sentence run together
+  // into a single paragraph.
+  assert.match(
+    markdown,
+    /### In use\n\n> Love's pleasure is ephemeral; regret eternal\.\n>\n> Aşkın zevki geçicidir; pişmanlığı sonsuzdur\.\n\n> Fame is ephemeral\./,
+  );
+  // The band joins the line under the heading rather than taking a section.
+  assert.match(markdown, /^\*word · UK \/ɪfˈɛməɹəl\/ · fairly common\*$/m);
+});

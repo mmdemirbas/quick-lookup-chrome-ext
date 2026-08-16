@@ -12,7 +12,8 @@ export const DATA_HOSTS = [
   'https://*.wikipedia.org/*', // article summaries and title search
   'https://*.wiktionary.org/*', // definitions, independent of the API below
   'https://freedictionaryapi.com/*', // definitions and pronunciation
-  'https://api.datamuse.com/*', // synonyms, related words, collocations
+  'https://api.datamuse.com/*', // synonyms, related words, collocations, word frequency
+  'https://tatoeba.org/*', // example sentences, with human translations
   'https://www.wikidata.org/*', // structured facts for entities
   'https://upload.wikimedia.org/*', // images referenced by the two above
   'https://api.stackexchange.com/*', // tag wikis: definitions of programming terms
