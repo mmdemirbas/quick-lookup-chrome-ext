@@ -35,6 +35,37 @@ type Response = {
   }>;
 };
 
+/**
+ * Accent names, shortened to the abbreviations dictionaries print.
+ *
+ * Wiktionary spells them out — "Received Pronunciation", "General American" —
+ * and three of those beside their transcriptions is two wrapped lines above
+ * the definition, for a label nobody reads twice. Anything not in the table
+ * is passed through if it is short and dropped if it is not: an unrecognised
+ * long tag is more likely to be a usage note than an accent.
+ */
+const DIALECTS: Record<string, string> = {
+  'received pronunciation': 'RP',
+  'general american': 'US',
+  'general australian': 'AU',
+  american: 'US',
+  britain: 'UK',
+  british: 'UK',
+  england: 'UK',
+  uk: 'UK',
+  us: 'US',
+};
+
+const MAX_DIALECT_CHARS = 14;
+
+export function shortDialect(tag: string | undefined): string | undefined {
+  const text = tag?.trim();
+  if (!text) return undefined;
+  const known = DIALECTS[text.toLowerCase()];
+  if (known) return known;
+  return text.length <= MAX_DIALECT_CHARS ? text : undefined;
+}
+
 /** Wiktionary example strings often begin with a bibliographic citation. */
 function cleanExample(raw: string): string | undefined {
   const withoutCitation = raw.replace(/^\s*\d{4}[^,]*,\s*[^:]{0,80}:\s*/, '');
@@ -75,7 +106,8 @@ export const freeDictionaryProvider: Provider = {
 
       for (const p of entry.pronunciations ?? []) {
         if (p.type === 'ipa' && p.text) {
-          pronunciations.push({ ipa: p.text, dialect: p.tags?.[0] });
+          const dialect = shortDialect(p.tags?.[0]);
+          pronunciations.push({ ipa: p.text, ...(dialect ? { dialect } : {}) });
         }
       }
 

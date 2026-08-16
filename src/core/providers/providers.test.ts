@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { HttpClient, LookupRequest, ProviderContext } from '../types.ts';
-import { freeDictionaryProvider } from './free-dictionary.ts';
+import { freeDictionaryProvider, shortDialect } from './free-dictionary.ts';
 import { wiktionaryProvider } from './wiktionary.ts';
 import { datamuseProvider } from './datamuse.ts';
 import { biasTerms, chooseCandidate, isAbout, wikipediaProvider } from './wikipedia.ts';
@@ -665,4 +665,18 @@ test('quick links differ by intent and are all absolute https URLs', () => {
     assert.match(link.url, /^https:\/\//);
     assert.ok(!link.url.includes(' '), 'the query must be encoded');
   }
+});
+
+test('accent names are shortened to what a dictionary prints', () => {
+  // Wiktionary spells them out, and three spelled-out accents beside their
+  // transcriptions is two wrapped lines above the definition.
+  assert.equal(shortDialect('Received Pronunciation'), 'RP');
+  assert.equal(shortDialect('General American'), 'US');
+  assert.equal(shortDialect('UK'), 'UK');
+  // Short and unrecognised is passed through: it is probably a real accent.
+  assert.equal(shortDialect('Scotland'), 'Scotland');
+  // Long and unrecognised is more likely a usage note than an accent.
+  assert.equal(shortDialect('chiefly in the north of England'), undefined);
+  assert.equal(shortDialect(undefined), undefined);
+  assert.equal(shortDialect('  '), undefined);
 });

@@ -118,6 +118,20 @@ section.tight { border-top: 0; padding-top: 0; }
    the back control and on the speaker, which is shown only when the browser
    can actually speak. */
 [hidden] { display: none !important; }
+/* Both edges of the card are drag surfaces. The cursor is the only thing
+   that says so before the reader tries it. */
+.grab { cursor: grab; }
+.grab.grabbing { cursor: grabbing; }
+/* A pinned card is the reader's, not the page's, and the difference has to
+   be readable at a glance with two cards on screen: a tinted border alone is
+   invisible next to another card. The mark says it in a word, the edge says
+   it from across the screen. */
+.card.pinned {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: inset 3px 0 0 var(--accent), var(--shadow);
+}
+.pin { display: none; color: var(--accent); font-size: 11px; letter-spacing: .04em; }
+.card.pinned .pin { display: inline; }
 .label {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
   color: var(--faint); margin-bottom: 5px;
@@ -240,7 +254,45 @@ export type CardViewCallbacks = {
   onFollow(text: string): void;
   /** Go back to the word this one was reached from. */
   onBack(): void;
+  /**
+   * The reader dragged this card somewhere, which detaches it: it stops
+   * following selections and stops being closed by them, so the next lookup
+   * needs a card of its own.
+   */
+  onPinned(): void;
 };
+
+/**
+ * How far a press has to travel before it counts as a drag.
+ *
+ * Zero would detach the card on any press of its header, including the one
+ * that lands on the close button and misses. Four pixels is below what a
+ * deliberate drag ever is and above what a click ever is.
+ */
+const DRAG_THRESHOLD = 4;
+
+/**
+ * How much of a dragged card must stay on screen.
+ *
+ * Half, rather than a fixed strip: a card parked with a sliver showing is
+ * hard to grab back, and its close button — which sits at the right edge —
+ * goes off screen first when it is dragged right. Half of it is always
+ * enough to take hold of and usually enough to read.
+ */
+const keepVisible = (extent: number) => extent / 2;
+
+/** Vertically, the header is the part that must stay reachable. */
+const KEEP_VISIBLE_Y = 40;
+
+/**
+ * Stacking order among open cards.
+ *
+ * Cards are separate host elements, so without this the newest is always on
+ * top and a pinned card the reader just pressed stays behind the one that
+ * covered it. Raised on press rather than on open, because "the one I am
+ * using" is the one that should be readable.
+ */
+let topmost = 0;
 
 /** The formats offered, in the order they appear on the card. */
 const FORMATS: Array<{ format: ExportFormat; label: string; hint: string }> = [
@@ -350,16 +402,45 @@ export class CardView {
   #engaged = false;
   /** The selection the card is placed against, kept so it can be re-placed. */
   #anchor: DOMRect | undefined;
+  /** Cards already on screen, which this one should not open on top of. */
+  #avoid: DOMRect[] = [];
   /** The card on screen. Held so it can be copied without asking for it again. */
   #current: Card | undefined;
   #actionButtons = new Map<ExportFormat, HTMLButtonElement>();
   #speaker: HTMLButtonElement | undefined;
   #back: HTMLButtonElement | undefined;
+  /** Detached from the selection by a drag: it stays where it was put. */
+  #pinned = false;
+  /** The lookup this card is waiting for, so a late answer finds its card. */
+  #requestId = '';
 
   constructor(private readonly callbacks: CardViewCallbacks) {}
 
   get isOpen(): boolean {
     return this.#host?.isConnected === true && this.#host.style.display !== 'none';
+  }
+
+  get isPinned(): boolean {
+    return this.#pinned;
+  }
+
+  /** Where this card sits, for another card that must not open on top of it. */
+  box(): DOMRect | undefined {
+    return this.isOpen ? this.#card?.getBoundingClientRect() : undefined;
+  }
+
+  get requestId(): string {
+    return this.#requestId;
+  }
+
+  /** What this card is currently about. */
+  get query(): string {
+    return this.#current?.query ?? this.#title?.textContent ?? '';
+  }
+
+  /** Ties this card to a lookup, so its answers are routed here and nowhere else. */
+  claim(requestId: string): void {
+    this.#requestId = requestId;
   }
 
   /** True when the node is inside this card, so selections in it are ignored. */
@@ -395,6 +476,8 @@ export class CardView {
     });
 
     const title = el('div', 'query');
+    const pin = el('span', 'pin', 'KEPT');
+    pin.title = 'Dragged aside, so it stays until you close it';
     const intent = el('span', 'intent');
 
     // Next to the word it pronounces, not in a toolbar: the reader should
@@ -417,7 +500,7 @@ export class CardView {
     close.setAttribute('aria-label', 'Close');
     close.addEventListener('click', () => this.callbacks.onClose());
 
-    header.append(back, title, intent, speaker, quiet, close);
+    header.append(back, title, pin, intent, speaker, quiet, close);
     this.#speaker = speaker;
     this.#back = back;
 
@@ -431,7 +514,16 @@ export class CardView {
     // Selections inside the card are ignored by the trigger, so this cannot
     // start a second lookup — that guard lives in `core/trigger.ts`.
     header.addEventListener('mousedown', (event) => event.preventDefault());
-    card.addEventListener('pointerdown', () => this.#engage());
+    card.addEventListener('pointerdown', () => {
+      this.#engage();
+      this.#raise();
+    });
+
+    // The two edges of the card, which is what a window is dragged by
+    // everywhere else. The body is deliberately not a drag surface: it is the
+    // answer, and dragging across it selects text.
+    this.#makeDraggable(header);
+    this.#makeDraggable(footer);
     card.addEventListener('wheel', (event) => event.stopPropagation(), { passive: true });
 
     root.append(style, card);
@@ -450,6 +542,91 @@ export class CardView {
     if (this.#engaged) return;
     this.#engaged = true;
     this.callbacks.onEngage();
+  }
+
+  /** Brings this card in front of the others. */
+  #raise(): void {
+    if (!this.#host) return;
+    // The base is one below the maximum a stylesheet can express, so raising
+    // has room to count upwards without any card leaving the top layer.
+    this.#host.style.zIndex = String(2147483646 - 1000 + Math.min(++topmost, 999));
+  }
+
+  /**
+   * Makes one edge of the card a drag surface.
+   *
+   * Pointer events rather than mouse events, so a trackpad, a touchscreen and
+   * a stylus all work from one code path. The capture is what makes a fast
+   * drag survive the pointer leaving the card: without it the card stops
+   * following as soon as the cursor outruns it, which reads as the drag
+   * having been dropped.
+   */
+  #makeDraggable(surface: HTMLElement): void {
+    surface.classList.add('grab');
+
+    surface.addEventListener('pointerdown', (event) => {
+      // A press that lands on a control is a press of that control. Buttons
+      // sit at both ends of the header, which is exactly where a hand reaches
+      // to drag a window.
+      if ((event.target as Element | null)?.closest('button')) return;
+      if (event.button !== 0 || !this.#host) return;
+
+      const host = this.#host;
+      const start = host.getBoundingClientRect();
+      const fromX = event.clientX;
+      const fromY = event.clientY;
+      let moved = false;
+
+      const move = (at: PointerEvent) => {
+        const dx = at.clientX - fromX;
+        const dy = at.clientY - fromY;
+        if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        if (!moved) {
+          moved = true;
+          surface.classList.add('grabbing');
+          // Pinned from the first pixel of movement rather than on release,
+          // so the card stops being re-placed by an arriving provider while
+          // it is still under the reader's finger.
+          this.#pin();
+        }
+        // Clamped so a strip of the card always stays reachable. Dragged
+        // fully off screen it would still be open, still swallowing
+        // selections, and impossible to close.
+        const width = start.width || WIDTH;
+        const margin = keepVisible(width);
+        const left = Math.min(Math.max(margin - width, start.left + dx), window.innerWidth - margin);
+        const top = Math.min(Math.max(0, start.top + dy), window.innerHeight - KEEP_VISIBLE_Y);
+        host.style.left = `${Math.round(left)}px`;
+        host.style.top = `${Math.round(top)}px`;
+      };
+
+      const end = () => {
+        surface.classList.remove('grabbing');
+        surface.removeEventListener('pointermove', move);
+        surface.removeEventListener('pointerup', end);
+        surface.removeEventListener('pointercancel', end);
+      };
+
+      surface.setPointerCapture(event.pointerId);
+      surface.addEventListener('pointermove', move);
+      surface.addEventListener('pointerup', end);
+      surface.addEventListener('pointercancel', end);
+    });
+  }
+
+  /**
+   * Detaches the card from the selection that opened it.
+   *
+   * The reader moved it, so it is now theirs to place: it stays where it was
+   * put, survives the next selection, and the next lookup opens beside it
+   * rather than replacing it. That is what makes two cards comparable.
+   */
+  #pin(): void {
+    if (this.#pinned) return;
+    this.#pinned = true;
+    this.#card?.classList.add('pinned');
+    this.#raise();
+    this.callbacks.onPinned();
   }
 
   /**
@@ -476,13 +653,48 @@ export class CardView {
     this.#back.setAttribute('aria-label', `Back to ${previous}`);
   }
 
-  /** Anchors the card to a selection and shows it. */
-  showAt(rect: DOMRect): void {
+  /**
+   * Anchors the card to a selection and shows it.
+   *
+   * `avoid` is the cards already on screen. Comparing two words means seeing
+   * both, and a card that opens exactly over the one it is being compared
+   * with has taken the feature away again.
+   */
+  showAt(rect: DOMRect, avoid: DOMRect[] = []): void {
     this.#ensure();
     if (!this.#host) return;
     this.#anchor = rect;
+    this.#avoid = avoid;
     this.#host.style.display = 'block';
     this.#place();
+  }
+
+  /**
+   * Slides a card sideways until it clears the ones already on screen.
+   *
+   * Right first, because the anchor is usually the left edge of a selection
+   * and there is more room that way. A shift that would push the card off
+   * screen is not a shift, so it falls back to the left and then to letting
+   * them overlap: covering a card is bad, and putting one out of reach is
+   * worse.
+   */
+  #clear(left: number, top: number, height: number): number {
+    const overlaps = (x: number) =>
+      this.#avoid.filter(
+        (other) =>
+          x < other.right && x + WIDTH > other.left && top < other.bottom && top + height > other.top,
+      );
+
+    if (overlaps(left).length === 0) return left;
+
+    for (const candidate of [
+      Math.max(...this.#avoid.map((other) => other.right)) + GAP,
+      Math.min(...this.#avoid.map((other) => other.left)) - WIDTH - GAP,
+    ]) {
+      if (candidate < MARGIN || candidate + WIDTH > window.innerWidth - MARGIN) continue;
+      if (overlaps(candidate).length === 0) return candidate;
+    }
+    return left;
   }
 
   /**
@@ -510,6 +722,15 @@ export class CardView {
     card.style.maxHeight = '';
     const wanted = card.getBoundingClientRect().height || MIN_HEIGHT;
 
+    // A card the reader has placed stays placed. It still gets a height cap,
+    // because a card that grows past the bottom of the window after a slow
+    // provider lands is as unreadable pinned as it is anchored.
+    if (this.#pinned) {
+      const top = host.getBoundingClientRect().top;
+      card.style.maxHeight = `${Math.round(Math.max(MIN_HEIGHT, window.innerHeight - top - MARGIN))}px`;
+      return;
+    }
+
     const roomBelow = window.innerHeight - anchor.bottom - GAP - MARGIN;
     const roomAbove = anchor.top - GAP - MARGIN;
 
@@ -525,10 +746,11 @@ export class CardView {
       ? Math.min(anchor.bottom + GAP, window.innerHeight - height - MARGIN)
       : Math.max(MARGIN, anchor.top - GAP - height);
 
-    const left = Math.min(
+    const beside = Math.min(
       Math.max(MARGIN, anchor.left),
       Math.max(MARGIN, window.innerWidth - WIDTH - MARGIN),
     );
+    const left = this.#clear(beside, Math.max(MARGIN, top), height);
 
     host.style.left = `${Math.round(left)}px`;
     host.style.top = `${Math.round(Math.max(MARGIN, top))}px`;

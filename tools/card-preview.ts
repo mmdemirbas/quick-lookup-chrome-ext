@@ -230,6 +230,10 @@ const view: CardView = new CardView({
     view.setBack(undefined);
     report('back');
   },
+  // Dragging the card detaches it. There is no second card to open here, so
+  // this page shows the pinned styling and the placement behaviour and stops
+  // there — the multi-card part needs the content script.
+  onPinned: () => report('pinned — this card now stays where you put it'),
 });
 
 function report(what: string): void {

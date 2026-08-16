@@ -223,6 +223,103 @@ async function checkHandle(page: import('playwright').Page): Promise<void> {
 }
 
 /**
+ * Dragging a card aside, and getting a second one.
+ *
+ * The whole feature is stateful in a way no unit test reaches: the card has
+ * to move under the pointer, stop being re-placed by the provider that lands
+ * next, survive a selection that would previously have replaced its content,
+ * and leave a fresh card for that selection to write into. Every one of those
+ * is a different way for it to look like it works.
+ */
+async function checkPinning(context: BrowserContext, origin: string): Promise<void> {
+  const page = await context.newPage();
+  await page.goto(origin, { waitUntil: 'domcontentloaded' });
+  await paragraph(page, 'A manifest is a metadata file').dblclick({ position: { x: 20, y: 10 } });
+
+  const cards = page.locator('quick-lookup-card');
+  const first = cards.first().locator('.card');
+  if (
+    !(await first
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false))
+  ) {
+    record('a card opens before it can be dragged', false);
+    await page.close();
+    return;
+  }
+  // Let the providers land first: the interesting case is a card that has
+  // finished growing, because a card still being re-placed hides the bug.
+  await page.waitForTimeout(2500);
+
+  const header = cards.first().locator('header');
+  const before = await first.boundingBox();
+  const grip = await header.boundingBox();
+  if (!before || !grip) {
+    record('the header can be found to drag by', false);
+    await page.close();
+    return;
+  }
+
+  // Pressed in the middle of the header, between the title and the buttons.
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2 - 180, grip.y + grip.height / 2 + 120, { steps: 14 });
+  await page.mouse.up();
+
+  const after = await first.boundingBox();
+  record(
+    'the card can be dragged by its header',
+    Boolean(after && before && Math.abs(after.x - before.x) > 100 && Math.abs(after.y - before.y) > 80),
+    after && before
+      ? `moved ${Math.round(after.x - before.x)},${Math.round(after.y - before.y)}`
+      : 'no box',
+  );
+  record(
+    'and says it is detached',
+    (await cards.first().locator('.card.pinned').count()) === 1,
+    'pinned styling',
+  );
+
+  // The point of pinning: the next selection must not take this card over.
+  await page.evaluate(() => getSelection()?.removeAllRanges());
+  await paragraph(page, 'A partition groups data files').dblclick({ position: { x: 20, y: 8 } });
+  const second = await cards
+    .nth(1)
+    .locator('.card')
+    .waitFor({ state: 'visible', timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+
+  const queries = await page.locator('quick-lookup-card header .query').allTextContents();
+  record(
+    'the next selection opens a second card instead of replacing the first',
+    second && queries.length === 2 && /manifest/i.test(queries[0] ?? '') && /partition/i.test(queries[1] ?? ''),
+    queries.join(' | ') || 'only one card',
+  );
+
+  const moved = await first.boundingBox();
+  record(
+    'a pinned card stays where it was put',
+    Boolean(moved && after && Math.abs(moved.x - after.x) < 2 && Math.abs(moved.y - after.y) < 2),
+    moved && after ? `drift ${Math.round(moved.x - after.x)},${Math.round(moved.y - after.y)}` : 'no box',
+  );
+
+  // Escape clears the live card first, then the pinned ones.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  record(
+    'Escape clears them in the reverse of the order they arrived',
+    (await page.locator('quick-lookup-card .card').count()) === 0 ||
+      (await page.locator('quick-lookup-card .card:visible').count()) === 0,
+    `${await page.locator('quick-lookup-card').count()} host(s) left`,
+  );
+  await page.close();
+}
+
+/**
  * Following a related word, and getting back.
  *
  * The chips used to be labels. Making them buttons is only half the feature:
@@ -643,6 +740,7 @@ try {
   const extensionId = worker.url().split('/')[2] ?? '';
   await checkTranslationDownload(context, extensionId);
   await checkFollowing(context, origin);
+  await checkPinning(context, origin);
   await checkHistory(context, extensionId);
   await checkDictionaryPack(context, extensionId, origin);
 

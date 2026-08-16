@@ -27,50 +27,110 @@ const COPY_CANCEL_MS = 700;
 let settings: Settings = DEFAULT_SETTINGS;
 const dismissals = new DismissalTracker(3);
 
+/**
+ * Cards the reader has dragged aside, oldest first.
+ *
+ * Dragging a card detaches it: it keeps its answer, stops following
+ * selections and stops being closed by them, so the next lookup opens a
+ * second card beside it. That is the whole point — two words on screen at
+ * once is the only way to compare them.
+ */
+const pinned: CardView[] = [];
+
+/**
+ * Beyond this many, the screen is the problem rather than the feature. The
+ * oldest goes, because the reader pinned it longest ago and has had the most
+ * time to finish with it.
+ */
+const MAX_PINNED = 4;
+
 let dwellTimer: ReturnType<typeof setTimeout> | undefined;
 let pointerDown = false;
-let lastRequestId = '';
-let currentQuery = '';
 let openedAt = 0;
 let pendingRect: DOMRect | undefined;
 
 /**
- * Words reached by following a synonym, oldest first.
+ * Words reached by following a synonym, per card, oldest first.
  *
- * Kept here rather than in the card because it is navigation, not rendering,
- * and because it must survive the card being re-rendered by every provider
- * that lands. Cleared whenever a lookup starts from a real selection: the
- * reader has left the trail, and offering to go back to a word from two
- * paragraphs ago would be a trap rather than a convenience.
+ * Outside the card because it is navigation rather than rendering, and it has
+ * to survive the re-render that every arriving provider causes. Keyed by card
+ * because each one is a separate line of enquiry: going back in one must not
+ * move another.
  */
-const trail: string[] = [];
+const trails = new WeakMap<CardView, string[]>();
 
-/** Looks up a word from inside the card, keeping the card where it is. */
-function follow(text: string, from: string | undefined): void {
-  const rect = card.anchor;
+const trailOf = (view: CardView): string[] => {
+  const existing = trails.get(view);
+  if (existing) return existing;
+  const fresh: string[] = [];
+  trails.set(view, fresh);
+  return fresh;
+};
+
+/** Looks a word up inside the card it was pressed in, leaving it where it is. */
+function follow(view: CardView, text: string, from: string | undefined): void {
+  const rect = view.anchor;
   if (!rect) return;
-  if (from) trail.push(from);
-  startLookup(text, rect, null, { keepTrail: true });
+  if (from) trailOf(view).push(from);
+  startLookup(text, rect, null, { view, keepTrail: true });
 }
 
-const card = new CardView({
-  onClose: () => closeCard('dismissed'),
-  onQuietSite: () => {
-    void ext.runtime.sendMessage({
-      type: 'QL_SET_SITE_MODE',
-      host: location.hostname,
-      mode: 'handle',
-    });
-    settings.sites[location.hostname] = { mode: 'handle' };
-    closeCard('quieted');
-  },
-  onEngage: () => dismissals.recordEngagement(location.hostname),
-  onFollow: (text) => follow(text, currentQuery),
-  onBack: () => {
-    const previous = trail.pop();
-    if (previous) follow(previous, undefined);
-  },
-});
+function makeCard(): CardView {
+  const view: CardView = new CardView({
+    onClose: () => dismiss(view, 'dismissed'),
+    onQuietSite: () => {
+      void ext.runtime.sendMessage({
+        type: 'QL_SET_SITE_MODE',
+        host: location.hostname,
+        mode: 'handle',
+      });
+      settings.sites[location.hostname] = { mode: 'handle' };
+      dismiss(view, 'quieted');
+    },
+    onEngage: () => dismissals.recordEngagement(location.hostname),
+    onFollow: (text) => follow(view, text, view.query),
+    onBack: () => {
+      const previous = trailOf(view).pop();
+      if (previous) follow(view, previous, undefined);
+    },
+    onPinned: () => {
+      // The card the reader just took hold of is no longer the one selections
+      // write into, so the live slot has to be replaced before the next one.
+      if (view !== live) return;
+      pinned.push(view);
+      live = makeCard();
+      while (pinned.length > MAX_PINNED) pinned.shift()?.destroy();
+    },
+  });
+  return view;
+}
+
+/** The card a new selection writes into. Replaced whenever one is pinned. */
+let live = makeCard();
+
+/** Every card on screen. Order is irrelevant; membership is not. */
+const allCards = (): CardView[] => [live, ...pinned];
+
+function anyCardContains(node: Node | null): boolean {
+  return allCards().some((view) => view.contains(node));
+}
+
+/**
+ * Closes one card.
+ *
+ * A pinned card is destroyed rather than hidden: it exists because the reader
+ * put it there, so closing it should leave nothing behind. The live card is
+ * only hidden, because it is reused by the next selection.
+ */
+function dismiss(view: CardView, reason: 'dismissed' | 'quieted' | 'navigated'): void {
+  if (view !== live) {
+    const at = pinned.indexOf(view);
+    if (at >= 0) pinned.splice(at, 1);
+    view.destroy();
+    return;
+  }
+  closeCard(reason);
+}
 
 const handle = new SelectionHandle(() => {
   const selection = window.getSelection();
@@ -125,10 +185,10 @@ function cancelDwell(): void {
 }
 
 function closeCard(reason: 'dismissed' | 'quieted' | 'navigated'): void {
-  if (!card.isOpen) return;
-  card.hide();
+  if (!live.isOpen) return;
+  live.hide();
   handle.hide();
-  void ext.runtime.sendMessage({ type: 'QL_CANCEL', requestId: lastRequestId }).catch(() => {});
+  void ext.runtime.sendMessage({ type: 'QL_CANCEL', requestId: live.requestId }).catch(() => {});
 
   // Only a real dismissal counts. Closing because the page changed, or
   // because the site was just quietened, says nothing about intent.
@@ -155,20 +215,27 @@ function startLookup(
   text: string,
   rect: DOMRect,
   selection: Selection | null,
-  options: { keepTrail?: boolean } = {},
+  options: { view?: CardView; keepTrail?: boolean } = {},
 ): void {
+  const view = options.view ?? live;
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  lastRequestId = requestId;
+  view.claim(requestId);
   openedAt = Date.now();
+
+  const trail = trailOf(view);
   if (!options.keepTrail) trail.length = 0;
-  currentQuery = text.trim();
 
   const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
   const page = contextForSelection(range, text.trim());
 
-  card.renderPending(text.trim());
-  card.setBack(trail[trail.length - 1]);
-  card.showAt(rect);
+  view.renderPending(text.trim());
+  view.setBack(trail[trail.length - 1]);
+  // Only the pinned ones are avoided. A card following a word inside itself
+  // must be free to stay exactly where the reader put it.
+  view.showAt(
+    rect,
+    pinned.filter((other) => other !== view).flatMap((other) => other.box() ?? []),
+  );
 
   void ext.runtime
     .sendMessage({ type: 'QL_LOOKUP', requestId, text, page })
@@ -186,7 +253,7 @@ function evaluateSelection(modifierHeld: boolean): void {
 
   const facts = selectionFacts(text, {
     inEditable: isEditable(anchor),
-    insideOwnUi: card.contains(anchor) || handle.contains(anchor) || hover.contains(anchor),
+    insideOwnUi: anyCardContains(anchor) || handle.contains(anchor) || hover.contains(anchor),
     modifierHeld,
   });
 
@@ -229,7 +296,7 @@ document.addEventListener(
     cancelDwell();
     const target = event.target as Node;
     // A click outside the card closes it, but a click inside must not.
-    if (card.isOpen && !card.contains(target)) closeCard('dismissed');
+    if (live.isOpen && !anyCardContains(target)) closeCard('dismissed');
     // Nor may pressing the handle hide the handle. This listener is on the
     // document in the capture phase, so it ran before the button's own
     // `click` — hiding the host removed the button from under the finger and
@@ -249,7 +316,7 @@ document.addEventListener(
     // the answer, or releasing the handle — has already been acted on. Re-
     // evaluating would only hide the handle that was just used.
     const target = event.target as Node;
-    if (card.contains(target) || handle.contains(target)) return;
+    if (anyCardContains(target) || handle.contains(target)) return;
     // Guard three: nothing is decided while the button is still down.
     dwellTimer = setTimeout(() => {
       dwellTimer = undefined;
@@ -268,25 +335,33 @@ document.addEventListener(
     // than the configured modifier because that may be set to ctrl or meta,
     // which the guard below owns. `code` rather than `key`, because Alt+C
     // composes to "ç" on a Mac.
-    if (card.isOpen && event.altKey && !event.metaKey && !event.ctrlKey && event.code === 'KeyC') {
+    if (live.isOpen && event.altKey && !event.metaKey && !event.ctrlKey && event.code === 'KeyC') {
       event.preventDefault();
-      void card.copyCurrent('markdown');
+      void live.copyCurrent('markdown');
       return;
     }
     // And the same route to hearing it.
-    if (card.isOpen && event.altKey && !event.metaKey && !event.ctrlKey && event.code === 'KeyS') {
+    if (live.isOpen && event.altKey && !event.metaKey && !event.ctrlKey && event.code === 'KeyS') {
       event.preventDefault();
-      card.speakQuery();
+      live.speakQuery();
       return;
     }
     // Guard two: copying is a different intention from looking up.
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
       cancelDwell();
-      if (card.isOpen && Date.now() - openedAt < COPY_CANCEL_MS) closeCard('navigated');
+      if (live.isOpen && Date.now() - openedAt < COPY_CANCEL_MS) closeCard('navigated');
       return;
     }
-    if (event.key === 'Escape' && card.isOpen) {
-      closeCard('dismissed');
+    if (event.key === 'Escape') {
+      // The live card first, then the pinned ones newest first, so pressing
+      // Escape repeatedly clears the screen in the reverse of the order it
+      // filled up. Nothing open means the key belongs to the page.
+      if (live.isOpen) closeCard('dismissed');
+      else {
+        const last = pinned[pinned.length - 1];
+        if (last) dismiss(last, 'dismissed');
+        else return;
+      }
       return;
     }
     // Keyboard selection, for readers who never touch the mouse.
@@ -309,7 +384,7 @@ window.addEventListener(
     // While the modifier is held the reader is still pointing at text, so
     // scrolling is navigation within the same lookup rather than the end of
     // it. The overlay follows on the next pointer move.
-    if (card.isOpen && !hover.isActive) closeCard('navigated');
+    if (live.isOpen && !hover.isActive) closeCard('navigated');
   },
   { passive: true, capture: true },
 );
@@ -318,9 +393,12 @@ ext.runtime.onMessage.addListener((message: ToContent) => {
   switch (message.type) {
     case 'QL_CARD': {
       const incoming = message.card as Card;
-      // A late answer for a selection the reader has moved on from.
-      if (incoming.requestId !== lastRequestId) return;
-      card.render(incoming);
+      // Routed by request rather than drawn on the live card. A pinned card
+      // can still be waiting on a slow provider, and its answer must land in
+      // it and not in whatever the reader has selected since.
+      const owner = allCards().find((view) => view.requestId === incoming.requestId);
+      // No owner is a late answer for a lookup that has been superseded.
+      owner?.render(incoming);
       return;
     }
     case 'QL_TRIGGER_LOOKUP': {

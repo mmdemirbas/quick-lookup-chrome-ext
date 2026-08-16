@@ -106,6 +106,20 @@ Per site, or globally, the trigger can be changed to a handle, to
 require a modifier, or to nothing at all. The toolbar popup switches the
 current site without opening settings.
 
+## Comparing two words
+
+Drag a card by its header or its foot and it detaches: it keeps its answer,
+stops following selections, and stops being closed by them. It is marked
+`KEPT` and stays where you put it until you close it.
+
+The next selection then opens a second card *beside* it rather than on top of
+it, which is the point — two words on screen at once is the only way to
+compare them. Up to four can be kept at a time. Escape clears them in the
+reverse of the order they arrived.
+
+Inside any card, a related word is a button: one press looks it up in that
+same card, and the header grows a control naming the word it returns to.
+
 ## Keeping what you find
 
 Every card copies itself, from the row at its foot: as plain text, as
