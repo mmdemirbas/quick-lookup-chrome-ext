@@ -194,9 +194,14 @@ document.addEventListener(
   (event) => {
     pointerDown = true;
     cancelDwell();
+    const target = event.target as Node;
     // A click outside the card closes it, but a click inside must not.
-    if (card.isOpen && !card.contains(event.target as Node)) closeCard('dismissed');
-    handle.hide();
+    if (card.isOpen && !card.contains(target)) closeCard('dismissed');
+    // Nor may pressing the handle hide the handle. This listener is on the
+    // document in the capture phase, so it ran before the button's own
+    // `click` — hiding the host removed the button from under the finger and
+    // the click never landed, which is why the handle looked dead.
+    if (!handle.contains(target)) handle.hide();
   },
   true,
 );
@@ -207,6 +212,11 @@ document.addEventListener(
     pointerDown = false;
     const modifierHeld = modifierPressed(event);
     cancelDwell();
+    // A gesture that ended on the extension's own surface — dragging across
+    // the answer, or releasing the handle — has already been acted on. Re-
+    // evaluating would only hide the handle that was just used.
+    const target = event.target as Node;
+    if (card.contains(target) || handle.contains(target)) return;
     // Guard three: nothing is decided while the button is still down.
     dwellTimer = setTimeout(() => {
       dwellTimer = undefined;
