@@ -8,6 +8,10 @@ node_modules/
 dist/
 docs/dist/
 
+# Working files. Scratch that is never meant to reach history — probe
+# scripts, screenshots taken to check a render, captured payloads.
+tmp/
+
 # Tooling artifacts
 .playwright-mcp/
 docs/_oku
