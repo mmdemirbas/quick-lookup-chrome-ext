@@ -11,6 +11,7 @@
     "test": "node --test 'src/**/*.test.ts'",
     "check": "npm run typecheck && npm test && npm run build",
     "smoke": "node tools/live-check.ts",
+    "sweep": "node tools/relevance-sweep.ts",
     "e2e": "npm run build && node tools/e2e.ts",
     "preview": "esbuild tools/card-preview.ts --bundle --outfile=dist/preview/preview.js --format=iife --target=chrome116 && cp tools/preview/index.html dist/preview/index.html"
   },
