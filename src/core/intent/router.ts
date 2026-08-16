@@ -89,14 +89,26 @@ export function routeIntent(s: Signals, uiLang = 'en'): Decision {
   if (s.tokenCount === 1) {
     // A single capitalised token is the genuinely ambiguous case: `Mercury`,
     // `Iceberg`, `Turing`. Fetch both paths rather than guessing.
+    //
+    // Unless the capital is only there because a sentence started, in which
+    // case it is not evidence at all and the safer reading leads. Both paths
+    // still run; what changes is which one shapes the card.
     if (s.titleCase && !s.allCaps) {
-      return {
-        intent: 'entity',
-        alsoFetch: ['word'],
-        confidence: 0.5,
-        reasons: ['single capitalised token — could be a name or a sentence start'],
-        ambiguous: true,
-      };
+      return s.atSentenceStart
+        ? {
+            intent: 'word',
+            alsoFetch: ['entity'],
+            confidence: 0.5,
+            reasons: ['capitalised, but only because it opens the sentence'],
+            ambiguous: true,
+          }
+        : {
+            intent: 'entity',
+            alsoFetch: ['word'],
+            confidence: 0.5,
+            reasons: ['single capitalised token — could be a name or a sentence start'],
+            ambiguous: true,
+          };
     }
     if (s.allCaps && s.charCount <= 8) {
       return decide('technical', 0.7, 'short all-caps token reads as an acronym', ['entity']);

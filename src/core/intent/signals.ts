@@ -33,6 +33,11 @@ export type Signals = {
   hasYearInParens: boolean;
   hasEpisodeCode: boolean;
   hasHonorific: boolean;
+  /**
+   * The selection opens its sentence, so its capital letter is grammar
+   * rather than evidence of a name.
+   */
+  atSentenceStart: boolean;
   quantity: { value: number; unit: string } | null;
   inCode: boolean;
   devHost: boolean;
@@ -123,6 +128,20 @@ function isTitleCase(tokens: string[]): boolean {
   });
 }
 
+/**
+ * Whether the selection is the opening of its own sentence.
+ *
+ * Every sentence begins with a capital, so the capital on its first word
+ * says nothing about whether that word is a name. Reading it as one is how
+ * selecting `First` at the head of a paragraph produced the article for a
+ * nineteenth-century watch manufacturer.
+ */
+export function startsSentence(text: string, sentence?: string): boolean {
+  const around = sentence?.trim();
+  if (!around || around.length <= text.length) return false;
+  return around.startsWith(text);
+}
+
 export function extractSignals(text: string, page: PageContext = {}): Signals {
   const trimmed = text.trim();
   const tokens = tokenize(trimmed);
@@ -149,6 +168,7 @@ export function extractSignals(text: string, page: PageContext = {}): Signals {
     hasYearInParens: /\((?:1[5-9]|20)\d{2}\)/.test(trimmed),
     hasEpisodeCode: /\bS\d{1,2}E\d{1,2}\b/i.test(trimmed),
     hasHonorific: HONORIFICS.test(trimmed),
+    atSentenceStart: startsSentence(trimmed, page.sentence),
     quantity: parseQuantity(trimmed),
     inCode: page.inCode === true,
     devHost: DEV_HOSTS.some((h) => host === h || host.endsWith(`.${h}`)),

@@ -4,7 +4,7 @@ import type { HttpClient, LookupRequest, ProviderContext } from '../types.ts';
 import { freeDictionaryProvider } from './free-dictionary.ts';
 import { wiktionaryProvider } from './wiktionary.ts';
 import { datamuseProvider } from './datamuse.ts';
-import { biasTerms, chooseCandidate, wikipediaProvider } from './wikipedia.ts';
+import { biasTerms, chooseCandidate, isAbout, wikipediaProvider } from './wikipedia.ts';
 import { linksFor } from './links.ts';
 import { definitionText, stackExchangeProvider, tagCandidates } from './stackexchange.ts';
 import { packageName, registryProvider } from './registry.ts';
@@ -238,19 +238,70 @@ test('bias terms never repeat words from the selection itself', () => {
 });
 
 test('candidates are chosen by context, falling back to search rank', () => {
+  // Both candidates are about a planner, which is what a real search for the
+  // word returns. The topic is what decides which planner was meant.
   const candidates = [
     { title: 'Wedding planner', description: 'organises weddings', index: 0 },
-    { title: 'Query optimization', description: 'database query execution', index: 1 },
+    { title: 'Query planner', description: 'database query execution', index: 1 },
   ];
-  assert.equal(chooseCandidate(candidates, ['database', 'query'])?.candidate.title, 'Query optimization');
-  assert.equal(chooseCandidate(candidates, [])?.candidate.title, 'Wedding planner');
-  assert.equal(chooseCandidate([], ['x']), undefined);
+  assert.equal(
+    chooseCandidate(candidates, ['database', 'query'], 'planner')?.candidate.title,
+    'Query planner',
+  );
+  assert.equal(chooseCandidate(candidates, [], 'planner')?.candidate.title, 'Wedding planner');
+  assert.equal(chooseCandidate([], ['x'], 'planner'), undefined);
 
   // A miss reports a zero score, which is how the caller detects that a
   // topic-biased search returned something unrelated to the page.
-  const miss = chooseCandidate(candidates, ['zzzz']);
+  const miss = chooseCandidate(candidates, ['zzzz'], 'planner');
   assert.equal(miss?.candidate.title, 'Wedding planner');
   assert.equal(miss?.score, 0);
+});
+
+test('a candidate that is only about the page is not an answer about the selection', () => {
+  // The reported case: selecting "Schema" on iceberg.apache.org returned the
+  // Apache Iceberg article, because the biased search asks for the selection
+  // and the page topic together, and the page's own subject matches every
+  // selection made on it. Topic overlap alone cannot tell the difference.
+  const candidates = [
+    {
+      title: 'Apache Iceberg',
+      description: 'open table format',
+      extract:
+        'Apache Iceberg is an open table format for very large analytic datasets. ' +
+        'It supports schema evolution, hidden partitioning and time travel.',
+      index: 0,
+    },
+  ];
+  const topic = ['iceberg', 'table', 'format'];
+
+  assert.equal(chooseCandidate(candidates, topic, 'schema'), undefined);
+  assert.equal(
+    chooseCandidate(candidates, topic, 'Apache Iceberg')?.candidate.title,
+    'Apache Iceberg',
+    'the article is still returned when it is what was selected',
+  );
+});
+
+test('an article is about what it names, not about everything it mentions', () => {
+  const iceberg = {
+    title: 'Apache Iceberg',
+    extract: 'Apache Iceberg is an open table format. Manifests list the data files.',
+  };
+  assert.ok(isAbout(iceberg, 'iceberg'), 'named in the title');
+  assert.ok(isAbout(iceberg, 'Apache Iceberg table format'), 'the selection may be wider');
+  assert.ok(!isAbout(iceberg, 'manifest'), 'mentioned in a later sentence is not about');
+  assert.ok(!isAbout(iceberg, 'table'), 'a word after the verb describes, it does not name');
+
+  const manifest = {
+    title: 'Manifest file',
+    extract: 'A manifest is a metadata file listing the data files of a snapshot.',
+  };
+  assert.ok(isAbout(manifest, 'manifests'), 'a plural selection matches the singular article');
+  assert.ok(
+    isAbout({ extract: 'A snapshot is the state of a table at a point in time.' }, 'snapshot'),
+    'the lead sentence names the subject when there is no title match',
+  );
 });
 
 test('a biased search that returns unrelated results is retried without bias', async () => {
@@ -268,7 +319,11 @@ test('a biased search that returns unrelated results is retried without bias', a
         ]) as never;
       }
       return searchPayload([
-        { title: 'Query optimization', description: 'database query planning', extract: 'Choosing an execution plan for a database query.' },
+        {
+          title: 'Query planner',
+          description: 'database query planning',
+          extract: 'A query planner is the component that chooses an execution plan.',
+        },
       ]) as never;
     },
   };
@@ -283,7 +338,7 @@ test('a biased search that returns unrelated results is retried without bias', a
   );
 
   assert.equal(queries.length, 2, 'the irrelevant biased result triggers a plain retry');
-  assert.equal(result?.slots.entity?.title, 'Query optimization');
+  assert.equal(result?.slots.entity?.title, 'Query planner');
 });
 
 test('a disambiguation article is rejected from either path', async () => {

@@ -14,10 +14,11 @@
  *   different rate-limit pool. It is the fallback.
  *
  * The fallback also biases the search with the page's topic, which is what
- * resolves a general word to the sense the page is about: `manifest` alone
- * returns the dictionary-ish article, while `manifest iceberg table
- * metadata` returns Apache Iceberg. Biasing can over-constrain and return
- * nothing, so an unbiased retry follows.
+ * resolves a general word to the sense the page is about: `parquet` on a
+ * table-format page returns Apache Parquet rather than the flooring.
+ * Biasing can over-constrain and return nothing, so an unbiased retry
+ * follows — and every search result must then survive `isAbout`, because
+ * biasing fails by returning the page's own subject for anything at all.
  */
 import type { PageContext, Provider, ProviderResult } from '../types.ts';
 import { contentWords, overlapScore, truncate } from '../text.ts';
@@ -74,6 +75,42 @@ export function biasTerms(page: PageContext, selection: string): string[] {
   return (page.topicTerms ?? []).filter((t) => !own.has(t)).slice(0, MAX_BIAS_TERMS);
 }
 
+/** `manifests` and `manifest` should match the same article. */
+function stem(word: string): string {
+  return word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word;
+}
+
+/**
+ * Whether a search result is about the selection at all.
+ *
+ * This is the gate that topic bias needs and did not have. A biased search
+ * asks Wikipedia for the selection *and* the page's topic, so the page's own
+ * subject matches every selection made anywhere on it: on the Iceberg
+ * documentation, selecting `Schema` returned "Apache Iceberg", and so would
+ * almost any other capitalised word. Topic overlap ranks candidates against
+ * each other. It cannot establish that one answers the question asked.
+ *
+ * What counts is the article's *subject*, not a mention of the term. That is
+ * readable from Wikipedia's house style: the title names the subject, and so
+ * does the lead sentence, before its verb. Checking the rest of the extract
+ * instead would let the reported case straight back through — the Iceberg
+ * article's second sentence mentions schema evolution.
+ *
+ * Only search results are gated. A title resolved directly is about the
+ * selection by construction, including through a redirect, so `NYC` finding
+ * "New York City" keeps working.
+ */
+export function isAbout(candidate: Candidate, query: string): boolean {
+  const needles = contentWords(query).map(stem);
+  if (needles.length === 0) return true;
+
+  const lead = (candidate.extract ?? '').split(/(?<=[.!?])\s/, 1)[0] ?? '';
+  const subject = lead.split(/\s+(?:is|was|are|were|refers|denotes)\s+/i, 1)[0] ?? '';
+  const named = new Set(contentWords(`${candidate.title ?? ''} ${subject}`).map(stem));
+
+  return needles.some((needle) => named.has(needle));
+}
+
 /**
  * Picks the candidate that best fits the page, and says how well it fits.
  *
@@ -83,13 +120,16 @@ export function biasTerms(page: PageContext, selection: string): string[] {
  * enough to detect that the bias misfired. A near-zero score is.
  *
  * With no topic terms, or when none match, the search engine's own
- * relevance order stands.
+ * relevance order stands — among the candidates that are about the query.
  */
 export function chooseCandidate(
   candidates: Candidate[],
   topicTerms: string[],
+  query: string,
 ): { candidate: Candidate; score: number } | undefined {
-  const ordered = [...candidates].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+  const ordered = [...candidates]
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+    .filter((candidate) => isAbout(candidate, query));
   const first = ordered[0];
   if (!first) return undefined;
   if (topicTerms.length === 0) return { candidate: first, score: 0 };
@@ -182,6 +222,13 @@ export const wikipediaProvider: Provider = {
           direct.thumbnail?.source,
         );
       }
+      // A disambiguation page is Wikipedia stating that the term names
+      // several unrelated things. Searching after that does not resolve the
+      // ambiguity, it only hides it behind whichever article ranked first —
+      // which is how `First` returned a watch manufacturer. Better to leave
+      // the slot empty and let the page's own sentence and the dictionary
+      // answer, which they do well for exactly this kind of word.
+      if (direct.type === 'disambiguation') return null;
     } catch {
       // No such article, or an outage. Both fall through to search.
     }
@@ -204,13 +251,13 @@ export const wikipediaProvider: Provider = {
     const bias = biasTerms(request.page, query);
 
     let chosen = bias.length
-      ? chooseCandidate(await search(`${query} ${bias.join(' ')}`), topicTerms)
+      ? chooseCandidate(await search(`${query} ${bias.join(' ')}`), topicTerms, query)
       : undefined;
 
     // The biased search either found nothing or found something unrelated to
     // the page. Either way the bias misfired, so ask again without it.
     if (!chosen || chosen.score < MIN_BIAS_SCORE) {
-      chosen = chooseCandidate(await search(query), topicTerms);
+      chosen = chooseCandidate(await search(query), topicTerms, query);
     }
 
     const candidate = chosen?.candidate;
