@@ -30,8 +30,28 @@ const dismissals = new DismissalTracker(3);
 let dwellTimer: ReturnType<typeof setTimeout> | undefined;
 let pointerDown = false;
 let lastRequestId = '';
+let currentQuery = '';
 let openedAt = 0;
 let pendingRect: DOMRect | undefined;
+
+/**
+ * Words reached by following a synonym, oldest first.
+ *
+ * Kept here rather than in the card because it is navigation, not rendering,
+ * and because it must survive the card being re-rendered by every provider
+ * that lands. Cleared whenever a lookup starts from a real selection: the
+ * reader has left the trail, and offering to go back to a word from two
+ * paragraphs ago would be a trap rather than a convenience.
+ */
+const trail: string[] = [];
+
+/** Looks up a word from inside the card, keeping the card where it is. */
+function follow(text: string, from: string | undefined): void {
+  const rect = card.anchor;
+  if (!rect) return;
+  if (from) trail.push(from);
+  startLookup(text, rect, null, { keepTrail: true });
+}
 
 const card = new CardView({
   onClose: () => closeCard('dismissed'),
@@ -45,6 +65,11 @@ const card = new CardView({
     closeCard('quieted');
   },
   onEngage: () => dismissals.recordEngagement(location.hostname),
+  onFollow: (text) => follow(text, currentQuery),
+  onBack: () => {
+    const previous = trail.pop();
+    if (previous) follow(previous, undefined);
+  },
 });
 
 const handle = new SelectionHandle(() => {
@@ -126,15 +151,23 @@ function offerQuietMode(): void {
   });
 }
 
-function startLookup(text: string, rect: DOMRect, selection: Selection | null): void {
+function startLookup(
+  text: string,
+  rect: DOMRect,
+  selection: Selection | null,
+  options: { keepTrail?: boolean } = {},
+): void {
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   lastRequestId = requestId;
   openedAt = Date.now();
+  if (!options.keepTrail) trail.length = 0;
+  currentQuery = text.trim();
 
   const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
   const page = contextForSelection(range, text.trim());
 
   card.renderPending(text.trim());
+  card.setBack(trail[trail.length - 1]);
   card.showAt(rect);
 
   void ext.runtime

@@ -159,18 +159,83 @@ function overflowCard(): Card {
   return finalise(card, []);
 }
 
+/**
+ * A word with more meanings than the card shows at once.
+ *
+ * The case the expander exists for: nine senses, of which six are drawn and
+ * three used to be dropped without a word about them. `bank` is the honest
+ * example because its meanings are unrelated — a card that shows only the
+ * financial ones is not a short card, it is a wrong one.
+ */
+function manySensesCard(): Card {
+  const card = createCard('preview-many', 'bank', 'word');
+  const senses = [
+    ['noun', 'An institution where one can place and borrow money.'],
+    ['noun', 'A branch office of such an institution.'],
+    ['noun', 'The edge of a river or other watercourse.'],
+    ['noun', 'A slope or incline, as of a road at a curve.'],
+    ['noun', 'A row or series of similar things, as of switches or oars.'],
+    ['noun', 'A raised area of the sea floor.'],
+    ['verb', 'To deposit money in a bank.'],
+    ['verb', 'To tilt an aircraft laterally when turning.'],
+    ['verb', 'To rely on; to count on.'],
+  ] as const;
+
+  applyResult(card, 'free-dictionary', {
+    slots: {
+      headword: 'bank',
+      pronunciation: [{ ipa: '/bæŋk/' }],
+      frequency: { perMillion: 87.4, band: 5, label: 'everyday', source: 'datamuse' },
+      senses: senses.map(([partOfSpeech, definition]) => ({
+        partOfSpeech,
+        definition,
+        source: 'en.wiktionary.org',
+      })),
+      translation: {
+        text: 'banka; kıyı, sahil; yığın',
+        lang: 'tr',
+        source: 'English-Turkish FreeDict',
+        equivalents: [
+          { word: 'banka', source: 'English-Turkish FreeDict' },
+          { word: 'kıyı', source: 'English-Turkish FreeDict' },
+          { word: 'sahil', source: 'English-Turkish FreeDict' },
+        ],
+      },
+      links: linksFor('word', 'bank', 'en'),
+    },
+  });
+  return finalise(card, []);
+}
+
 const SAMPLES: Array<{ id: string; label: string; build: () => Card }> = [
   { id: 'word', label: 'Word', build: wordCard },
+  { id: 'many', label: 'Many meanings', build: manySensesCard },
   { id: 'entity', label: 'Entity', build: entityCard },
   { id: 'technical', label: 'Technical', build: technicalCard },
   { id: 'overflow', label: 'Long headword', build: overflowCard },
 ];
 
-const view = new CardView({
+const view: CardView = new CardView({
   onClose: () => view.hide(),
   onQuietSite: () => view.hide(),
   onEngage: () => {},
+  // No service worker here, so following a word shows the control working
+  // and nothing behind it. The back label is what the header has to lay out
+  // around, and that is the part worth seeing on this page.
+  onFollow: (text) => {
+    view.setBack(text);
+    report(`follow: ${text}`);
+  },
+  onBack: () => {
+    view.setBack(undefined);
+    report('back');
+  },
 });
+
+function report(what: string): void {
+  const line = document.getElementById('hover-readout');
+  if (line) line.textContent = what;
+}
 
 function show(id: string): void {
   const sample = SAMPLES.find((s) => s.id === id);

@@ -96,6 +96,11 @@ header {
 button.icon {
   border: 0; background: transparent; color: var(--faint);
   cursor: pointer; border-radius: 6px; padding: 3px 6px; font-size: 14px; line-height: 1;
+  /* 24 square is the smallest target that can be hit reliably. Padding and
+     font size alone left these at 20, which is fine with a mouse and not
+     with a trackpad. */
+  min-width: 24px; min-height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 button.icon:hover { background: var(--surface); color: var(--text); }
 button.icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -107,7 +112,12 @@ section:first-child { border-top: 0; }
    A rule between them gives a five-pixel bar the same weight as Definitions
    and makes the top of the card read as three stacked strips. */
 section.tight { border-top: 0; padding-top: 0; }
-section[hidden] { display: none; }
+/* An author display declaration beats the user-agent rule behind the hidden
+   attribute, so every element that sets one has to say this too. Giving the
+   icon buttons inline-flex for their target size stopped hidden working on
+   the back control and on the speaker, which is shown only when the browser
+   can actually speak. */
+[hidden] { display: none !important; }
 .label {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
   color: var(--faint); margin-bottom: 5px;
@@ -132,6 +142,15 @@ section[hidden] { display: none; }
 .examples li:last-child { margin-bottom: 0; }
 .examples .sentence { font-size: 13.5px; }
 .examples .rendered { color: var(--soft); font-size: 12.5px; margin-top: 0; }
+button.more {
+  margin-top: 2px; padding: 4px 0; border: 0; background: none;
+  color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer;
+  /* A standalone control, so it takes the 24-pixel minimum. The padding is
+     vertical only: an underline that starts before the text reads as a gap. */
+  min-height: 24px; display: block;
+}
+button.more:hover { text-decoration: underline; }
+button.icon.back { margin-right: 2px; font-size: 15px; line-height: 1; }
 
 ol.senses { margin: 0; padding-left: 18px; }
 ol.senses li { margin-bottom: 7px; }
@@ -172,7 +191,13 @@ button.chip[data-state='failed'] { border-color: var(--warn); color: var(--warn)
 
 .translation { color: var(--soft); }
 .translation .lang { font-size: 11px; color: var(--faint); margin-right: 6px; text-transform: uppercase; }
-button.icon.say { font-size: 12px; padding: 1px 4px; vertical-align: baseline; margin-left: 4px; }
+/* The one exception to the size above, and a deliberate one: this speaker
+   sits inside a sentence, and a 24-pixel box in a line of text pushes the
+   line apart. Targets inline in text are exempt for exactly this reason. */
+button.icon.say {
+  font-size: 12px; padding: 1px 4px; vertical-align: baseline; margin-left: 4px;
+  min-width: 0; min-height: 0; display: inline;
+}
 
 footer {
   padding: 7px 13px 9px; border-top: 1px solid var(--border);
@@ -188,6 +213,15 @@ footer {
 @media (prefers-reduced-motion: reduce) { .pending .skeleton { animation: none; } }
 `;
 
+/**
+ * Meanings shown before the rest are folded away.
+ *
+ * Six fills the card without scrolling for almost every word. The ones past
+ * it are reachable rather than dropped: the export takes the same six, so
+ * this is where the card and a copied note agree.
+ */
+const VISIBLE_SENSES = 6;
+
 const SLOT_LABEL: Partial<Record<SlotId, string>> = {
   senses: 'Definitions',
   examples: 'In use',
@@ -202,6 +236,10 @@ export type CardViewCallbacks = {
   onClose(): void;
   onQuietSite(): void;
   onEngage(): void;
+  /** Look up another word without leaving the page or the card. */
+  onFollow(text: string): void;
+  /** Go back to the word this one was reached from. */
+  onBack(): void;
 };
 
 /** The formats offered, in the order they appear on the card. */
@@ -316,6 +354,7 @@ export class CardView {
   #current: Card | undefined;
   #actionButtons = new Map<ExportFormat, HTMLButtonElement>();
   #speaker: HTMLButtonElement | undefined;
+  #back: HTMLButtonElement | undefined;
 
   constructor(private readonly callbacks: CardViewCallbacks) {}
 
@@ -344,6 +383,17 @@ export class CardView {
     card.setAttribute('aria-label', 'Quick Lookup result');
 
     const header = el('header');
+
+    // Following a synonym is only useful if the way back is obvious. Without
+    // this, one click on a chip loses the word the reader started from and
+    // the page no longer has it selected to try again.
+    const back = el('button', 'icon back', '‹');
+    back.hidden = true;
+    back.addEventListener('click', () => {
+      this.#engage();
+      this.callbacks.onBack();
+    });
+
     const title = el('div', 'query');
     const intent = el('span', 'intent');
 
@@ -367,8 +417,9 @@ export class CardView {
     close.setAttribute('aria-label', 'Close');
     close.addEventListener('click', () => this.callbacks.onClose());
 
-    header.append(title, intent, speaker, quiet, close);
+    header.append(back, title, intent, speaker, quiet, close);
     this.#speaker = speaker;
+    this.#back = back;
 
     const body = el('div', 'body');
     const footer = el('footer');
@@ -399,6 +450,30 @@ export class CardView {
     if (this.#engaged) return;
     this.#engaged = true;
     this.callbacks.onEngage();
+  }
+
+  /**
+   * Where the card is anchored, so a followed word opens where the reader is
+   * already looking rather than back at a selection they have moved on from.
+   */
+  get anchor(): DOMRect | undefined {
+    return this.#anchor;
+  }
+
+  /**
+   * Names the word the reader can go back to, or hides the control.
+   *
+   * The label is on the button rather than beside it because the header has
+   * no room for another line, and a bare arrow gives no clue what it returns
+   * to after two or three hops.
+   */
+  setBack(previous: string | undefined): void {
+    this.#ensure();
+    if (!this.#back) return;
+    this.#back.hidden = !previous;
+    if (!previous) return;
+    this.#back.title = `Back to "${previous}"`;
+    this.#back.setAttribute('aria-label', `Back to ${previous}`);
   }
 
   /** Anchors the card to a selection and shows it. */
@@ -667,14 +742,31 @@ export class CardView {
       case 'senses': {
         const senses = slot.data as Sense[];
         const list = el('ol', 'senses');
-        for (const sense of senses.slice(0, 6)) {
+        const draw = (sense: Sense) => {
           const item = el('li');
           if (sense.partOfSpeech) item.append(el('span', 'pos', sense.partOfSpeech));
           item.append(document.createTextNode(sense.definition));
           if (sense.example) item.append(el('em', 'example', sense.example));
           list.append(item);
-        }
+        };
+
+        for (const sense of senses.slice(0, VISIBLE_SENSES)) draw(sense);
         section.append(el('div', 'label', label ?? id), list);
+
+        // A word with eleven meanings used to show six and say nothing about
+        // the other five, which is the difference between a card that is
+        // short and a card that is wrong about what the word means.
+        const rest = senses.slice(VISIBLE_SENSES);
+        if (rest.length > 0) {
+          const more = el('button', 'more', `${rest.length} more ${rest.length === 1 ? 'meaning' : 'meanings'}`);
+          more.type = 'button';
+          more.addEventListener('click', () => {
+            this.#engage();
+            for (const sense of rest) draw(sense);
+            more.remove();
+          });
+          section.append(more);
+        }
         return section;
       }
 
@@ -707,8 +799,18 @@ export class CardView {
         const related = slot.data as Related[];
         const chips = el('div', 'chips');
         for (const item of related.slice(0, 14)) {
-          const chip = el('span', `chip ${item.kind}`, item.word);
-          if (item.definition) chip.title = item.definition;
+          // A button, not a label. A synonym the reader does not know is the
+          // most likely next lookup on the card, and reaching it by
+          // re-selecting the word on a page that does not contain it was the
+          // long way round. Being a real button also makes it reachable by
+          // Tab, which a span with a click handler is not.
+          const chip = el('button', `chip ${item.kind}`, item.word);
+          chip.type = 'button';
+          chip.title = item.definition ? `${item.definition}\nLook this up` : 'Look this up';
+          chip.addEventListener('click', () => {
+            this.#engage();
+            this.callbacks.onFollow(item.word);
+          });
           chips.append(chip);
         }
         if (!chips.hasChildNodes()) return undefined;

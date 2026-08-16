@@ -223,6 +223,66 @@ async function checkHandle(page: import('playwright').Page): Promise<void> {
 }
 
 /**
+ * Following a related word, and getting back.
+ *
+ * The chips used to be labels. Making them buttons is only half the feature:
+ * one click replaces the word on the card, and the page no longer has the
+ * original selected, so without a way back the reader has lost where they
+ * started. Both halves are checked here because either alone is a worse card
+ * than the one before.
+ */
+async function checkFollowing(context: BrowserContext, origin: string): Promise<void> {
+  const page = await context.newPage();
+  await page.goto(origin, { waitUntil: 'domcontentloaded' });
+  await paragraph(page, 'A manifest is a metadata file').dblclick({ position: { x: 20, y: 10 } });
+
+  const chip = page.locator('quick-lookup-card section button.chip.synonym').first();
+  const offered = await chip
+    .waitFor({ state: 'visible', timeout: 12_000 })
+    .then(() => true)
+    .catch(() => false);
+  record('a related word is offered as something to press', offered);
+  if (!offered) {
+    await page.close();
+    return;
+  }
+
+  const word = ((await chip.textContent()) ?? '').trim();
+  const query = page.locator('quick-lookup-card header .query');
+  await chip.click();
+  const followed = await query
+    .filter({ hasText: new RegExp(`^${word}$`, 'i') })
+    .waitFor({ timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+  record('pressing it looks that word up in place', followed, `manifest → ${word}`);
+
+  const back = page.locator('quick-lookup-card header button.back');
+  const wayBack = await back
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false);
+  record('and the way back names the word it returns to', wayBack, (await back.getAttribute('title')) ?? '');
+
+  if (wayBack) {
+    await back.click();
+    const returned = await query
+      .filter({ hasText: /^manifest$/i })
+      .waitFor({ timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    // Hidden again at the end of the trail, or it offers a journey with no
+    // destination.
+    record(
+      'going back returns to the word and puts the control away',
+      returned && (await back.isHidden()),
+      returned ? `back to manifest, control hidden: ${await back.isHidden()}` : 'never returned',
+    );
+  }
+  await page.close();
+}
+
+/**
  * The history, which is the only way to review a word after the card closed.
  *
  * Worth a browser check rather than a unit test because everything about it
@@ -582,6 +642,7 @@ try {
 
   const extensionId = worker.url().split('/')[2] ?? '';
   await checkTranslationDownload(context, extensionId);
+  await checkFollowing(context, origin);
   await checkHistory(context, extensionId);
   await checkDictionaryPack(context, extensionId, origin);
 
