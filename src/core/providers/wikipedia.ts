@@ -19,6 +19,13 @@
  * Biasing can over-constrain and return nothing, so an unbiased retry
  * follows — and every search result must then survive `isAbout`, because
  * biasing fails by returning the page's own subject for anything at all.
+ *
+ * The fast path needs the same treatment for a different reason. A title
+ * that resolves is not a title that resolved to the right thing: `Parquet`
+ * has an article of its own, about the flooring, so the fast path answered
+ * and the biased search that knew better never ran. When the resolved
+ * article has nothing in common with the page, the biased search runs after
+ * all — and may only take over on the terms in `moreSpecific`.
  */
 import type { PageContext, Provider, ProviderResult } from '../types.ts';
 import { contentWords, overlapScore, truncate } from '../text.ts';
@@ -152,6 +159,22 @@ function usable(summary: SummaryResponse): boolean {
 }
 
 /**
+ * Whether a challenger names the same thing as the selection, only more
+ * precisely: every content word of the selection appears in its title.
+ *
+ * This is what separates the swap that is wanted from the one that is not.
+ * `Parquet` to `Apache Parquet` is the same term, qualified. `Alan Turing` to
+ * `Turing completeness` is a different subject that happens to mention what
+ * the page is about, and taking it over an article Wikipedia resolved
+ * directly would be a worse answer than the one being replaced.
+ */
+export function moreSpecific(title: string, query: string): boolean {
+  const named = new Set(contentWords(title).map(stem));
+  const needles = contentWords(query).map(stem);
+  return needles.length > 0 && needles.every((needle) => named.has(needle));
+}
+
+/**
  * How the article was found, which is how much to trust its paragraph.
  *
  * A title that resolved directly is about the selection. A search result is
@@ -192,10 +215,11 @@ export const wikipediaProvider: Provider = {
   intents: ['entity', 'technical', 'phrase', 'unknown'],
   slots: ['entity', 'extract'],
   /**
-   * The fast path costs one cached request. The disambiguation path can
-   * cost three sequential ones, which is deliberately allowed to exceed the
-   * card's headline budget: by then the dictionary slots are already drawn
-   * and this fills in beneath them.
+   * The fast path costs one cached request, two when the article it found
+   * has nothing to do with the page. The disambiguation path can cost three
+   * sequential ones, which is deliberately allowed to exceed the card's
+   * headline budget: by then the dictionary slots are already drawn and this
+   * fills in beneath them.
    */
   deadlineMs: 2000,
 
@@ -207,31 +231,23 @@ export const wikipediaProvider: Provider = {
     const api = `https://${lang}.wikipedia.org/w/api.php`;
 
     // Fast path: the cached summary endpoint, which also normalises titles.
+    let direct: SummaryResponse | undefined;
     try {
-      const direct = await context.http.json<SummaryResponse>(
+      direct = await context.http.json<SummaryResponse>(
         `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${toTitle(query)}`,
         { signal: context.signal },
       );
-      if (usable(direct)) {
-        return result(
-          direct.title ?? query,
-          direct.extract ?? '',
-          direct.content_urls?.desktop?.page ?? articleUrl(lang, direct.title ?? query),
-          SOURCE,
-          direct.description,
-          direct.thumbnail?.source,
-        );
-      }
-      // A disambiguation page is Wikipedia stating that the term names
-      // several unrelated things. Searching after that does not resolve the
-      // ambiguity, it only hides it behind whichever article ranked first —
-      // which is how `First` returned a watch manufacturer. Better to leave
-      // the slot empty and let the page's own sentence and the dictionary
-      // answer, which they do well for exactly this kind of word.
-      if (direct.type === 'disambiguation') return null;
     } catch {
       // No such article, or an outage. Both fall through to search.
     }
+
+    // A disambiguation page is Wikipedia stating that the term names
+    // several unrelated things. Searching after that does not resolve the
+    // ambiguity, it only hides it behind whichever article ranked first —
+    // which is how `First` returned a watch manufacturer. Better to leave
+    // the slot empty and let the page's own sentence and the dictionary
+    // answer, which they do well for exactly this kind of word.
+    if (direct?.type === 'disambiguation') return null;
 
     const search = async (terms: string): Promise<Candidate[]> => {
       const url =
@@ -250,6 +266,61 @@ export const wikipediaProvider: Provider = {
     const topicTerms = request.page.topicTerms ?? [];
     const bias = biasTerms(request.page, query);
 
+    const fromCandidate = (candidate: Candidate): ProviderResult =>
+      result(
+        candidate.title ?? '',
+        candidate.extract ?? '',
+        articleUrl(lang, candidate.title ?? ''),
+        SOURCE_SEARCHED,
+        candidate.description,
+        candidate.thumbnail?.source,
+      );
+
+    if (direct && usable(direct)) {
+      const found = result(
+        direct.title ?? query,
+        direct.extract ?? '',
+        direct.content_urls?.desktop?.page ?? articleUrl(lang, direct.title ?? query),
+        SOURCE,
+        direct.description,
+        direct.thumbnail?.source,
+      );
+
+      // A title resolving is not the same as it resolving to what this page
+      // means. `Parquet` on a page about table formats is the flooring:
+      // Wikipedia answered the question exactly as asked, and the question
+      // was ambiguous. The fast path could not see that, because it never
+      // looked at the page.
+      //
+      // The search that can see it is rate limited far more aggressively
+      // than this endpoint, and it is also the fallback every miss depends
+      // on, so it is spent only when there is a reason to: a page with a
+      // topic, and an article with nothing to do with it.
+      const fit = overlapScore(
+        `${direct.title ?? ''} ${direct.description ?? ''} ${direct.extract ?? ''}`,
+        topicTerms,
+      );
+      if (bias.length === 0 || fit >= MIN_BIAS_SCORE) return found;
+
+      // Three conditions, because this replaces an answer Wikipedia gave
+      // directly: the challenger has to fit the page, name the same thing,
+      // and be a different article from the one already in hand.
+      const better = chooseCandidate(await search(`${query} ${bias.join(' ')}`), topicTerms, query);
+      const candidate = better?.candidate;
+      if (
+        better &&
+        candidate?.title &&
+        candidate.extract &&
+        better.score >= MIN_BIAS_SCORE &&
+        candidate.title !== direct.title &&
+        moreSpecific(candidate.title, query) &&
+        !/\bmay refer to\b/i.test(candidate.extract)
+      ) {
+        return fromCandidate(candidate);
+      }
+      return found;
+    }
+
     let chosen = bias.length
       ? chooseCandidate(await search(`${query} ${bias.join(' ')}`), topicTerms, query)
       : undefined;
@@ -266,13 +337,6 @@ export const wikipediaProvider: Provider = {
     // one reached directly.
     if (/\bmay refer to\b/i.test(candidate.extract)) return null;
 
-    return result(
-      candidate.title,
-      candidate.extract,
-      articleUrl(lang, candidate.title),
-      SOURCE_SEARCHED,
-      candidate.description,
-      candidate.thumbnail?.source,
-    );
+    return fromCandidate(candidate);
   },
 };

@@ -4,7 +4,13 @@ import type { HttpClient, LookupRequest, ProviderContext } from '../types.ts';
 import { freeDictionaryProvider, shortDialect } from './free-dictionary.ts';
 import { wiktionaryProvider } from './wiktionary.ts';
 import { datamuseProvider } from './datamuse.ts';
-import { biasTerms, chooseCandidate, isAbout, wikipediaProvider } from './wikipedia.ts';
+import {
+  biasTerms,
+  chooseCandidate,
+  isAbout,
+  moreSpecific,
+  wikipediaProvider,
+} from './wikipedia.ts';
 import { linksFor } from './links.ts';
 import { definitionText, stackExchangeProvider, tagCandidates } from './stackexchange.ts';
 import { packageName, registryProvider } from './registry.ts';
@@ -269,6 +275,82 @@ test('page topic biases the search query, and over-constraining retries plain', 
   assert.equal(queries.length, 2, 'biased first, then plain');
   assert.equal(queries[0], 'manifest iceberg table metadata', 'at most three bias terms');
   assert.equal(queries[1], 'manifest');
+});
+
+const FLOORING = {
+  type: 'standard',
+  title: 'Parquet',
+  extract:
+    'Parquet is a geometric mosaic of wood pieces used for decorative effect in flooring.',
+};
+
+const TABLE_PAGE = { topicTerms: ['iceberg', 'table', 'format', 'column'] };
+
+test('an article that resolves is not always the article this page means', async () => {
+  // The reported defect. `Parquet` has an article of its own — the flooring —
+  // so on a page about table formats the fast path answered with it and the
+  // biased search that knows about Apache Parquet was never reached. The
+  // title resolving is what made it look like a hit.
+  const http = stubHttp([
+    ['page/summary', FLOORING],
+    [
+      'gsrsearch',
+      searchPayload([
+        {
+          title: 'Apache Parquet',
+          description: 'column-oriented data storage format',
+          extract:
+            'Apache Parquet is a free and open-source column-oriented data storage format in the Apache Hadoop ecosystem.',
+        },
+      ]),
+    ],
+  ]);
+
+  const result = await wikipediaProvider.run(
+    { ...request, text: 'Parquet', page: TABLE_PAGE },
+    context(http),
+  );
+
+  assert.equal(result?.slots.entity?.title, 'Apache Parquet');
+  // Searched for rather than resolved, so a source that matched the term
+  // exactly still owns the paragraph over this one.
+  assert.equal(result?.slots.extract?.source, 'wikipedia-search');
+  assert.equal(http.calls.length, 2, 'the summary, then one biased search');
+});
+
+test('an article unrelated to the page is still the answer when nothing better names it', async () => {
+  // The guard on the fix. Reading about table formats and looking up a
+  // person: the direct hit has nothing in common with the page, and that is
+  // not evidence it is wrong. A challenger that merely mentions the topic
+  // must not take over an article Wikipedia resolved directly.
+  const http = stubHttp([
+    ['page/summary', TURING],
+    [
+      'gsrsearch',
+      searchPayload([
+        {
+          title: 'Turing completeness',
+          description: 'property of a computational system',
+          extract:
+            'Turing completeness is a property of a system of data-manipulation rules, such as a table of format rules.',
+        },
+      ]),
+    ],
+  ]);
+
+  const result = await wikipediaProvider.run(
+    { ...request, text: 'Alan Turing', page: TABLE_PAGE },
+    context(http),
+  );
+
+  assert.equal(result?.slots.entity?.title, 'Alan Turing');
+  assert.equal(result?.slots.extract?.source, 'wikipedia');
+});
+
+test('a challenger has to name the same thing, not merely mention it', () => {
+  assert.ok(moreSpecific('Apache Parquet', 'Parquet'));
+  assert.ok(moreSpecific('Second (unit)', 'second'));
+  assert.ok(!moreSpecific('Turing completeness', 'Alan Turing'));
 });
 
 test('bias terms never repeat words from the selection itself', () => {
