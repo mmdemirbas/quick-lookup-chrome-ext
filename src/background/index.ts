@@ -17,8 +17,15 @@ import { PROVIDERS } from '../core/providers/all.ts';
 import { ext } from '../platform/browser.ts';
 import { packLookup } from '../platform/packs.ts';
 import { createHttpClient } from '../platform/http.ts';
-import { detectCapabilities, translate, uiLanguage } from '../platform/ai.ts';
-import { translateOnline } from '../core/online-translate.ts';
+import {
+  detectCapabilities,
+  detectLanguage,
+  hasTranslator,
+  translate,
+  uiLanguage,
+} from '../platform/ai.ts';
+import { translateOnline, UNKNOWN_LANGUAGE } from '../core/online-translate.ts';
+import { sameLanguage } from '../core/language.ts';
 import type { StatusResponse, ToBackground } from '../shared/messages.ts';
 
 const VERSION = ext.runtime.getManifest().version;
@@ -85,8 +92,14 @@ function send(tabId: number, card: Card): void {
  * translates an answer we already have instead of fetching a new one, and
  * because it is the one step that may be unavailable on any given machine.
  */
-async function addGloss(card: Card, targetLanguage: string): Promise<boolean> {
+async function addGloss(
+  card: Card,
+  targetLanguage: string,
+  pageLanguage: string | undefined,
+): Promise<boolean> {
   if (!settings.appearance.showGloss) return false;
+  // Nothing here could translate, so nothing below is worth working out.
+  if (!hasTranslator() && !settings.appearance.onlineTranslation) return false;
 
   // What is worth translating differs by what was selected. For a single
   // word the definition carries far more than the word alone would, and the
@@ -99,16 +112,30 @@ async function addGloss(card: Card, targetLanguage: string): Promise<boolean> {
       : card.query;
   if (!subject) return false;
 
-  // On-device first, always: it is free, private and needs no allowance.
-  // The online service is only asked when the browser has nothing and the
-  // reader has said the selection may leave the device.
-  const onDevice = await translate(subject, 'en', targetLanguage);
+  // What language the subject is in, in order of how much it can be trusted.
+  //
+  // A dictionary definition is written in English whatever the word was, so
+  // the word path knows. Anything else is the reader's own selection, and
+  // assuming English there is how a German sentence came back as itself:
+  // both services accept `en` for German text and return the input, with no
+  // error to notice. A detector, where the browser has one, is evidence; the
+  // page's `lang` is a declaration; neither may be invented.
+  const source =
+    card.intent === 'word'
+      ? 'en'
+      : ((await detectLanguage(subject)) ?? pageLanguage ?? undefined);
+  if (source && sameLanguage(source, targetLanguage)) return false;
+
+  // On-device first, always: it is free, private and needs no allowance. It
+  // needs both languages named, so an unknown source skips it rather than
+  // guessing — the online chain can still ask a service that detects.
+  const onDevice = source ? await translate(subject, source, targetLanguage) : undefined;
   const online =
     onDevice || !settings.appearance.onlineTranslation
       ? undefined
       : await translateOnline(http, {
           text: subject,
-          sourceLanguage: 'en',
+          sourceLanguage: source ?? UNKNOWN_LANGUAGE,
           targetLanguage,
           preference: settings.appearance.translationService,
           ...(settings.appearance.translationEmail
@@ -199,7 +226,7 @@ async function handleLookup(
     );
 
     if (controller.signal.aborted) return;
-    if (await addGloss(card, settings.appearance.glossLanguage)) send(tabId, card);
+    if (await addGloss(card, settings.appearance.glossLanguage, page.lang)) send(tabId, card);
 
     // Only cache a card that actually answered. Caching an empty result
     // would make a transient outage stick for a week.

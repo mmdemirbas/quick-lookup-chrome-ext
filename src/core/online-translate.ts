@@ -25,9 +25,21 @@
  * no schema at all, so every level of it is checked before it is believed.
  */
 import type { HttpClient } from './types.ts';
+import { sameLanguage } from './language.ts';
 
 /** A service that can answer. Also the source name shown on the card. */
 export type TranslationService = 'google' | 'mymemory';
+
+/**
+ * What to pass as the source language when it is genuinely unknown.
+ *
+ * Naming a language that is not the text's own is worse than naming none:
+ * measured against both services, `sl=en` on German text returns the German
+ * back, unchanged and with no error — a translation the reader would have to
+ * read to discover was never made. Only a service that can detect for itself
+ * may be asked under this.
+ */
+export const UNKNOWN_LANGUAGE = 'auto';
 
 /** What the reader picked in settings. `auto` tries each in turn. */
 export type TranslationPreference = 'auto' | TranslationService;
@@ -99,6 +111,8 @@ type Options = {
 
 type Spec = {
   maxChars: number;
+  /** Whether the service works out the source language itself. */
+  detects: boolean;
   url(options: Options): string;
   read(body: unknown): string | undefined;
 };
@@ -106,6 +120,8 @@ type Spec = {
 const SPECS: Record<TranslationService, Spec> = {
   google: {
     maxChars: MAX_GOOGLE_CHARS,
+    // `sl=auto` is what the web widget itself sends.
+    detects: true,
     url: ({ text, sourceLanguage, targetLanguage }) =>
       'https://translate.googleapis.com/translate_a/single' +
       `?client=gtx&sl=${encodeURIComponent(sourceLanguage)}` +
@@ -118,6 +134,8 @@ const SPECS: Record<TranslationService, Spec> = {
   },
   mymemory: {
     maxChars: MAX_QUERY_CHARS,
+    // `langpair` takes two codes and has no autodetecting form.
+    detects: false,
     url: ({ text, sourceLanguage, targetLanguage, email }) =>
       'https://api.mymemory.translated.net/get' +
       `?q=${encodeURIComponent(text)}` +
@@ -152,13 +170,20 @@ export async function translateOnline(
 ): Promise<OnlineTranslation | undefined> {
   const text = options.text.trim();
   if (!text) return undefined;
-  if (options.sourceLanguage === options.targetLanguage) return undefined;
+  const unknownSource = options.sourceLanguage === UNKNOWN_LANGUAGE;
+  // Region and script do not make a translation: `en-GB` to `en-US` would
+  // spend a request to be handed the input back.
+  if (!unknownSource && sameLanguage(options.sourceLanguage, options.targetLanguage)) {
+    return undefined;
+  }
 
   for (const service of servicesFor(options.preference ?? 'auto')) {
     const spec = SPECS[service];
     // Too long for this service is a reason to try the next one, not to
     // give up: their limits differ by more than three times.
     if (text.length > spec.maxChars) continue;
+    // As is a service that would have to be told a language nobody knows.
+    if (unknownSource && !spec.detects) continue;
 
     try {
       const body = await http.json<unknown>(spec.url({ ...options, text }), {

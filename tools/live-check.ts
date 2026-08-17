@@ -14,7 +14,7 @@ import { routeIntent } from '../src/core/intent/router.ts';
 import { runLookup } from '../src/core/lookup.ts';
 import { PROVIDERS } from '../src/core/providers/all.ts';
 import { findDefinitions } from '../src/core/page-definition.ts';
-import { translateOnline } from '../src/core/online-translate.ts';
+import { translateOnline, UNKNOWN_LANGUAGE } from '../src/core/online-translate.ts';
 import type { Card, HttpClient, PageContext } from '../src/core/types.ts';
 
 const UA = 'QuickLookup/0.2.0 (https://github.com/mmdemirbas/quick-lookup-chrome-ext)';
@@ -351,6 +351,31 @@ for (const service of ['google', 'mymemory'] as const) {
       skips++;
     }
   }
+}
+
+/**
+ * Text that is not English, with nothing saying what it is.
+ *
+ * This is the case that was silently broken: the caller named `en` for
+ * everything, and both services answer `en` on German text by returning the
+ * German back — HTTP 200, no error field, nothing to notice except reading
+ * it. A check that only ever translates English cannot see that, which is
+ * why this one is here rather than another English string.
+ */
+const GERMAN = 'Der Schnee fiel die ganze Nacht und die Schulen blieben geschlossen';
+const detected = await translateOnline(http, {
+  text: GERMAN,
+  sourceLanguage: UNKNOWN_LANGUAGE,
+  targetLanguage: 'tr',
+});
+if (!detected) {
+  console.log('  skip [detect] a language nobody named — no translation returned');
+  skips++;
+} else if (detected.text.trim() === GERMAN) {
+  console.log(`  FAIL [detect] the input came back unchanged: "${detected.text}"`);
+  failures++;
+} else {
+  console.log(`  ok   [${detected.source}] German with no source named -> "${detected.text}"`);
 }
 
 const summary =

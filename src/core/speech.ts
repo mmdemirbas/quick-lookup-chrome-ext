@@ -11,18 +11,19 @@
  * synthesised rather than played back. That is the better trade anyway: it
  * works for a whole sentence, for a term no dictionary lists, and offline.
  */
+import { languageTag } from './language.ts';
 
 /**
  * A BCP-47 tag the speech engine will accept, or the fallback.
  *
- * Pages declare all sorts of things in `lang`, including empty strings and
- * whole sentences. Anything that is not shaped like a language tag is
- * discarded rather than passed on, because a bad tag makes the engine pick
- * a default voice silently and the reader has no way to tell.
+ * Pages declare all sorts of things in `lang`, and anything not shaped like
+ * a language tag is discarded rather than passed on: a bad tag makes the
+ * engine pick a default voice silently and the reader has no way to tell.
+ * The same judgement decides whether a translator may be told what language
+ * it is reading, so it lives in `language.ts` and is only applied here.
  */
 export function utteranceLanguage(declared: string | null | undefined, fallback = 'en'): string {
-  const tag = (declared ?? '').trim();
-  return /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(tag) ? tag : fallback;
+  return languageTag(declared) ?? fallback;
 }
 
 /**

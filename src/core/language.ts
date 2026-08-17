@@ -40,3 +40,28 @@ export function toIso3(code: string): string | undefined {
   if (ISO1_TO_ISO3.has(lower)) return ISO1_TO_ISO3.get(lower);
   return ISO3_TO_ISO1[lower] ? lower : undefined;
 }
+
+/**
+ * A declared language tag, or nothing when what was declared is not one.
+ *
+ * `lang` attributes carry whatever an author typed — empty strings, `x-none`,
+ * a whole sentence. Everything downstream treats a tag as authoritative, so
+ * the check belongs here rather than at each use.
+ */
+export function languageTag(declared: string | null | undefined): string | undefined {
+  const tag = (declared ?? '').trim();
+  return /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(tag) ? tag : undefined;
+}
+
+/**
+ * Whether two tags name the same language, ignoring region and script.
+ *
+ * `en-GB` and `en-US` are one language for every purpose here: translating
+ * between them is not a translation, and asking a service to do it wastes a
+ * request to be told the input back.
+ */
+export function sameLanguage(a: string, b: string): boolean {
+  const primary = (tag: string) => tag.trim().toLowerCase().split('-')[0] ?? '';
+  const left = primary(a);
+  return left.length > 0 && left === primary(b);
+}

@@ -88,6 +88,17 @@ export async function detectCapabilities(): Promise<Capabilities> {
   };
 }
 
+/**
+ * Whether this browser has a translator at all.
+ *
+ * Asked before anything is spent working out what language a selection is
+ * in: with no translator here and the online one switched off — the default
+ * — there is nothing that could use the answer.
+ */
+export function hasTranslator(): boolean {
+  return Boolean(scope.Translator);
+}
+
 /** Detects the language of a short string. Returns undefined when unavailable. */
 export async function detectLanguage(text: string): Promise<string | undefined> {
   if (!scope.LanguageDetector) return undefined;

@@ -6,6 +6,7 @@ import {
   readMyMemoryTranslation,
   servicesFor,
   translateOnline,
+  UNKNOWN_LANGUAGE,
 } from './online-translate.ts';
 import type { HttpClient } from './types.ts';
 
@@ -191,6 +192,54 @@ test('being too long for one service is a reason to try the next, not to stop', 
   });
   assert.equal(result?.source, 'google');
   assert.equal(http.calls.length, 1, 'MyMemory was skipped rather than asked and refused');
+});
+
+/**
+ * The defect this closes, measured against both live services on 2026-08-17.
+ *
+ * The caller used to say `en` whatever had been selected. Given the German
+ * sentence "Der Schnee fiel die ganze Nacht und die Schulen blieben
+ * geschlossen" and a Turkish target, `sl=en` returned that German sentence
+ * back, unchanged, with HTTP 200 and no error field — and MyMemory did the
+ * same for `en|tr`. With the source named correctly, both answered "Bütün
+ * gece kar yağdı ve okullar kapalı kaldı". A wrong language is worse than
+ * no language: it fails silently and looks like an answer.
+ */
+test('a service that cannot detect is not asked about a language nobody knows', async () => {
+  const http = routed({ 'translate.googleapis.com': GOOGLE_OK });
+  const result = await translateOnline(http, {
+    text: 'The snapshot isolation level prevents dirty reads.',
+    sourceLanguage: UNKNOWN_LANGUAGE,
+    targetLanguage: 'tr',
+  });
+
+  assert.equal(result?.source, 'google');
+  assert.equal(http.calls.length, 1);
+  assert.match(http.calls[0] ?? '', /[?&]sl=auto\b/, 'Google is told to detect it');
+
+  // MyMemory's langpair takes two codes and has no autodetecting form, so
+  // asking it under an unknown source could only be asking it wrongly.
+  const alone = stub(OK);
+  assert.equal(
+    await translateOnline(alone, {
+      text: 'The snapshot isolation level prevents dirty reads.',
+      sourceLanguage: UNKNOWN_LANGUAGE,
+      targetLanguage: 'tr',
+      preference: 'mymemory',
+    }),
+    undefined,
+  );
+  assert.equal(alone.calls.length, 0, 'no request, rather than a request naming the wrong language');
+});
+
+test('a region is not a translation', async () => {
+  // `en-GB` to `en-US` would spend a request to be handed the input back.
+  const http = stub(OK);
+  assert.equal(
+    await translateOnline(http, { text: 'colour', sourceLanguage: 'en-GB', targetLanguage: 'en' }),
+    undefined,
+  );
+  assert.equal(http.calls.length, 0);
 });
 
 test('nothing is sent when the languages match, or when every service is down', async () => {

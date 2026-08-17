@@ -12,6 +12,7 @@
 import type { PageContext } from '../core/types.ts';
 import { contentWords } from '../core/text.ts';
 import { findDefinitions } from '../core/page-definition.ts';
+import { languageTag } from '../core/language.ts';
 
 const MAX_TOPIC_TERMS = 24;
 
@@ -199,15 +200,33 @@ function enclosingSentence(node: Node | null, selected: string): string | undefi
   return sentence.length > selected.length ? sentence : undefined;
 }
 
+/**
+ * What language the selected text is declared to be in.
+ *
+ * The nearest ancestor carrying a `lang` wins over the document's, because a
+ * quotation in another language is exactly the case where the document's own
+ * declaration is wrong — and it is also the case where knowing the language
+ * matters most.
+ */
+function declaredLanguage(node: Node | null): string | undefined {
+  const start = node instanceof Element ? node : node?.parentElement;
+  const tagged = start?.closest('[lang]');
+  return (
+    languageTag(tagged?.getAttribute('lang')) ?? languageTag(document.documentElement.lang)
+  );
+}
+
 /** Page profile plus whatever is true about this particular selection. */
 export function contextForSelection(range: Range | null, selected: string): PageContext {
   const profile = pageProfile();
-  if (!range) return profile;
+  const documentLanguage = languageTag(document.documentElement.lang);
+  if (!range) return { ...profile, ...(documentLanguage ? { lang: documentLanguage } : {}) };
 
   const anchor = range.startContainer;
   const heading = nearestHeading(anchor);
   const sentence = enclosingSentence(anchor, selected);
   const definitions = findDefinitions(selected, pageText()).map((d) => d.text);
+  const lang = declaredLanguage(anchor);
 
   return {
     ...profile,
@@ -215,5 +234,6 @@ export function contextForSelection(range: Range | null, selected: string): Page
     ...(heading ? { nearestHeading: heading } : {}),
     ...(sentence ? { sentence } : {}),
     ...(definitions.length ? { definitions } : {}),
+    ...(lang ? { lang } : {}),
   };
 }

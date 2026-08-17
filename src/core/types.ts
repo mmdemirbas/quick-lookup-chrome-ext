@@ -48,6 +48,12 @@ export type PageContext = {
   sentence?: string;
   inCode?: boolean;
   /**
+   * The language the selected text is declared to be in — the nearest `lang`
+   * around it, or the document's. A declaration, not a detection, so it is
+   * the second-best evidence and never overrides a detector.
+   */
+  lang?: string;
+  /**
    * Sentences on the page that define the selection, best first. Found
    * locally by the content script, because the page is the only source that
    * knows what a term means *here*.
