@@ -21,18 +21,19 @@ void ext.runtime.sendMessage({ type: 'QL_GET_STATUS' }).then((status: StatusResp
 
   const line = document.createElement('div');
   const strong = document.createElement('b');
-  strong.textContent = capabilities.generate
-    ? 'On-device model ready'
-    : capabilities.translate
-      ? 'Translation only'
-      : 'No on-device model';
+  strong.textContent = capabilities.translate
+    ? 'On-device translator ready'
+    : 'No on-device translator';
   line.append(strong);
   statusBox.append(line);
 
   const detail = document.createElement('div');
-  detail.textContent = capabilities.generate
-    ? 'Meanings are ranked for the page you are on.'
-    : 'Lookups work as normal. Meanings are ranked by page context without a model.';
+  // Ranking is not conditional on anything the browser provides — it is done
+  // against the page, locally, on every lookup — so it is stated the same way
+  // either way. Only translation changes with the browser.
+  detail.textContent = capabilities.translate
+    ? 'Translation stays on this device. Meanings are ranked by page context.'
+    : 'Lookups work as normal. Meanings are ranked by page context, and translation can be switched on in settings.';
   statusBox.append(detail);
 
   const versionLine = document.createElement('div');

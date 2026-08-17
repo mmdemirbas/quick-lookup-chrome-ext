@@ -125,11 +125,11 @@ function renderSites(): void {
 }
 
 /**
- * Reports what the on-device model can do here.
+ * Reports what this browser provides on the device.
  *
- * When nothing is available in a Chromium browser the most likely reason is
- * Brave, where the component is behind two flags and a manual download, so
- * the exact steps are shown rather than a bare "unavailable".
+ * Only the translator and the language detector, because only those are
+ * used. What to do when there is no translator is shown further down, next
+ * to the control it affects.
  */
 function renderStatus(status: StatusResponse): void {
   const box = $('status');
@@ -141,40 +141,23 @@ function renderStatus(status: StatusResponse): void {
   const abilities = [
     capabilities.detect && 'detect language',
     capabilities.translate && 'translate',
-    capabilities.generate && 'rank and phrase',
   ].filter(Boolean);
   // What the browser *exposes*, which is not the same as what is ready to
   // use — a translator can be present with no language pair downloaded. The
   // row above reports the readiness, so this must not claim it.
   headline.textContent = abilities.length
     ? `This browser provides: ${abilities.join(', ')}.`
-    : 'This browser provides no on-device model.';
+    : 'This browser provides no on-device translator.';
 
   const reason = document.createElement('div');
   reason.textContent = capabilities.reason;
 
   const note = document.createElement('div');
   note.textContent =
-    'Every answer works without it. The model only ranks meanings and translates — it is never the source of a fact.';
+    'Every answer works without one. A translator only translates — it is never the source of a fact, ' +
+    'and meanings are ranked against the page here, with no model at all.';
 
   box.append(headline, reason, note);
-
-  if (!capabilities.generate) {
-    // Translation and ranking are separate switches, and translation is by
-    // far the more useful of the two, so it comes first and is kept apart.
-    // Measured in Brave: with no flags every API is absent; enabling the
-    // translation flag alone is enough to make the translator downloadable.
-    // Ranking is a separate capability from translating, and a much harder
-    // one to obtain: the flags exist in Brave, but the model behind them
-    // reported "unavailable" on every machine measured so far. Translation
-    // is handled next to the Download button, where the action is.
-    box.append(turningOn('To rank meanings by page context', [
-      'Open brave://flags and enable "Prompt API for Gemini Nano".',
-      'Set "Enables optimization guide on device" to EnabledBypassPerfRequirement.',
-      'Restart. The model then has to arrive as a component, which it may never do.',
-      'This is optional. Nothing needs it, and translation does not use it at all.',
-    ]));
-  }
 }
 
 /**

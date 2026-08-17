@@ -5,8 +5,9 @@ text, in place. An English word gets definitions, pronunciation and
 related words. A name gets an entity card. A technical term gets the
 sense that fits the page you are reading.
 
-Facts come from data sources. The on-device model, where the browser has
-one, only ranks and translates — it is never the source of a fact.
+Facts come from data sources. Meanings are ranked against the page you are
+reading, locally and with no model. The browser's own translator, where
+there is one, only translates — it is never the source of a fact.
 
 Design and reasoning: `SPEC.md`.
 Landscape research and the decisions behind it: `docs/redesign-2026-08-11.md`.
@@ -163,6 +164,7 @@ worth coming back to.
   available and either can be chosen alone: Google's keyless endpoint,
   which has no allowance to exhaust, and MyMemory, which is documented
   but limited to 5,000 characters a day.
-- Translation and ranking run on the device when the browser provides a
-  model, and are skipped when it does not.
+- Ranking always runs on the device: it is arithmetic over the page's own
+  words, not a model. Translation runs on the device too when the browser
+  provides a translator, and is skipped when it does not.
 - Everything stored stays local. Preferences sync; the cache does not.

@@ -1,11 +1,16 @@
 /**
  * The inference adapter.
  *
- * `LanguageModel`, `Translator` and `LanguageDetector` are W3C Web Machine
- * Learning drafts, not Chrome APIs. Chrome, Edge and Brave all expose the
- * same global names over different models, so one implementation covers
- * three browsers. Firefox exposes something different in shape and is
- * detected separately.
+ * `Translator` and `LanguageDetector` are W3C Web Machine Learning drafts,
+ * not Chrome APIs. Chrome, Edge and Brave all expose the same global names
+ * over different models, so one implementation covers three browsers.
+ * Firefox exposes something different in shape and is detected separately.
+ *
+ * The language model — the Prompt API — is deliberately absent. It was here
+ * to rank senses, never got a caller, and the ranking is done against the
+ * page locally instead: deterministic, instant, and the same on every
+ * machine. Consulting it only to report that it exists led the options page
+ * to ask for two Brave flags in exchange for nothing.
  *
  * Nothing here throws on absence. Callers ask what is available and take
  * the answer, because the no-model path is the default path: Chrome and
@@ -16,21 +21,11 @@ import { ext } from './browser.ts';
 export type Capabilities = {
   detect: boolean;
   translate: boolean;
-  classify: boolean;
-  generate: boolean;
   /** For the options page: what the user could turn on, and how. */
   reason: string;
 };
 
 type Availability = 'unavailable' | 'downloadable' | 'downloading' | 'available';
-
-type LanguageModelGlobal = {
-  availability(options?: unknown): Promise<Availability>;
-  create(options?: unknown): Promise<{
-    prompt(input: string, options?: { responseConstraint?: unknown }): Promise<string>;
-    destroy?(): void;
-  }>;
-};
 
 type DownloadMonitor = {
   addEventListener(type: 'downloadprogress', listener: (event: { loaded: number }) => void): void;
@@ -54,7 +49,6 @@ type DetectorGlobal = {
 };
 
 const scope = globalThis as unknown as {
-  LanguageModel?: LanguageModelGlobal;
   Translator?: TranslatorGlobal;
   LanguageDetector?: DetectorGlobal;
   browser?: { trial?: { ml?: unknown } };
@@ -70,48 +64,27 @@ const usable = (a: Availability | undefined) => a === 'available';
  * never acceptable as a side effect of selecting a word.
  */
 export async function detectCapabilities(): Promise<Capabilities> {
-  const none = (reason: string): Capabilities => ({
-    detect: false,
-    translate: false,
-    classify: false,
-    generate: false,
-    reason,
-  });
-
-  if (!scope.LanguageModel && !scope.Translator && !scope.LanguageDetector) {
-    if (scope.browser?.trial?.ml) {
-      return {
-        ...none('Firefox exposes browser.trial.ml, which cannot generate free-form text.'),
-        classify: true,
-      };
-    }
-    return none(
-      'No built-in model in this browser. Brave ships these APIs switched off; ' +
-        'each is a separate flag, and translation is the one worth turning on first.',
-    );
+  if (!scope.Translator && !scope.LanguageDetector) {
+    return {
+      detect: false,
+      translate: false,
+      reason: scope.browser?.trial?.ml
+        ? 'Firefox exposes browser.trial.ml, which is not the translator interface this uses.'
+        : 'No built-in translator in this browser. Brave ships the API switched off, and every ' +
+          'answer works without it.',
+    };
   }
 
-  const [model, detector] = await Promise.all([
-    scope.LanguageModel?.availability().catch(() => undefined),
-    scope.LanguageDetector?.availability().catch(() => undefined),
-  ]);
-
-  const generate = usable(model);
+  const detector = await scope.LanguageDetector?.availability().catch(() => undefined);
   return {
     detect: usable(detector),
     // Language-pair availability is per pair and is checked at call time.
     translate: Boolean(scope.Translator),
-    classify: generate,
-    generate,
-    // Only ever about the language model. Translation has its own state,
-    // reported next to the control that can change it, and saying "cannot
-    // run the built-in model" beside "provides: translate" reads as a
-    // contradiction.
-    reason: generate
-      ? 'The built-in language model is ready.'
-      : model === 'downloadable' || model === 'downloading'
-        ? 'A language model is available but not downloaded. Downloads are skipped on metered connections.'
-        : 'This device or browser cannot run a built-in language model. Nothing here needs one.',
+    // The readiness of a *pair* is reported next to the Download button,
+    // where the action is. This says only whether the interface exists.
+    reason: scope.Translator
+      ? 'This browser exposes a built-in translator. Each language pair is downloaded on request.'
+      : 'This browser exposes no built-in translator. Nothing here needs one.',
   };
 }
 
@@ -198,42 +171,6 @@ export async function downloadTranslation(
   } catch {
     // A refused or failed download leaves the setting exactly as it was.
     return await translationAvailability(sourceLanguage, targetLanguage);
-  }
-}
-
-/**
- * Picks one of `options` for the given question.
- *
- * Constrained to an index into a list the caller already holds, so the model
- * can rank what a source returned but can never introduce a fact. An
- * out-of-range or unparsable answer falls back to the first option.
- */
-export async function chooseOption(
-  question: string,
-  options: string[],
-): Promise<number | undefined> {
-  if (!scope.LanguageModel || options.length === 0) return undefined;
-  try {
-    if (!usable(await scope.LanguageModel.availability())) return undefined;
-    const session = await scope.LanguageModel.create({
-      initialPrompts: [
-        {
-          role: 'system',
-          content:
-            'You choose the best option from a numbered list. Reply with the number only. ' +
-            'Never invent an option that is not listed.',
-        },
-      ],
-    });
-    const numbered = options.map((o, i) => `${i}. ${o}`).join('\n');
-    const answer = await session.prompt(`${question}\n\n${numbered}`, {
-      responseConstraint: { type: 'integer', minimum: 0, maximum: options.length - 1 },
-    });
-    session.destroy?.();
-    const index = Number.parseInt(answer.trim(), 10);
-    return Number.isInteger(index) && index >= 0 && index < options.length ? index : undefined;
-  } catch {
-    return undefined;
   }
 }
 
