@@ -16,8 +16,14 @@ import { PROVIDERS } from '../src/core/providers/all.ts';
 import { findDefinitions } from '../src/core/page-definition.ts';
 import { translateOnline, UNKNOWN_LANGUAGE } from '../src/core/online-translate.ts';
 import type { Card, HttpClient, PageContext } from '../src/core/types.ts';
+import { readFileSync } from 'node:fs';
 
-const UA = 'QuickLookup/0.2.0 (https://github.com/mmdemirbas/quick-lookup-chrome-ext)';
+// Read rather than repeated: a user agent naming a version this build is
+// not is a lie told to every source it identifies itself to.
+const { version } = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+);
+const UA = `QuickLookup/${version} (https://github.com/mmdemirbas/quick-lookup-chrome-ext)`;
 
 const http: HttpClient = {
   async json<T>(url: string, init: { signal?: AbortSignal } = {}): Promise<T> {

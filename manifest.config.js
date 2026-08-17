@@ -6,6 +6,16 @@
  * are declared. Keeping one file means a permission can never be added to
  * one target and forgotten in the other.
  */
+import { readFileSync } from 'node:fs';
+
+/**
+ * Read rather than repeated. The version is part of the cache key — a card
+ * composed by an older build must not be reused by a newer one — so two
+ * copies of it that can disagree is two answers to "which build made this".
+ */
+const { version } = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+);
 
 /** Hosts the extension is allowed to contact. Every entry needs a reason. */
 export const DATA_HOSTS = [
@@ -28,7 +38,7 @@ export const DATA_HOSTS = [
 const BASE = {
   manifest_version: 3,
   name: 'Quick Lookup',
-  version: '0.2.0',
+  version,
   description: 'Instant, evidence-backed lookup for whatever you select.',
   // `unlimitedStorage` is for installed dictionary packs. One is about five
   // megabytes of definitions, and the default extension quota is not much

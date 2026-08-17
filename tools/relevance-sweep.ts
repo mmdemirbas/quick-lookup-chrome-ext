@@ -20,8 +20,14 @@
  */
 import { wikipediaProvider } from '../src/core/providers/wikipedia.ts';
 import type { HttpClient } from '../src/core/types.ts';
+import { readFileSync } from 'node:fs';
 
-const UA = 'QuickLookup/0.2.0 (https://github.com/mmdemirbas/quick-lookup-chrome-ext)';
+// Read rather than repeated: a user agent naming a version this build is
+// not is a lie told to every source it identifies itself to.
+const { version } = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+);
+const UA = `QuickLookup/${version} (https://github.com/mmdemirbas/quick-lookup-chrome-ext)`;
 
 /**
  * The same shape as `platform/http.ts`, rebuilt here rather than imported.
@@ -71,6 +77,15 @@ const CASES: Case[] = [
   { text: 'Order', page: ICEBERG, want: NOTHING, why: 'common word on a topical page' },
   { text: 'Table', page: ICEBERG, want: NOTHING, why: 'the page topic itself, as a common noun' },
   { text: 'Read', page: ICEBERG, want: NOTHING, why: 'common verb' },
+  // Known to disagree, and left that way deliberately. Wikipedia has a real
+  // article titled "Second" — the SI unit — so the title resolves and there
+  // is no page topic to weigh it against. Every rule that would suppress it
+  // also suppresses something wanted: "is this word in a dictionary" would
+  // take out `Parquet` on a table-format page, and "did a capital start the
+  // sentence" would take out a real name at a paragraph start. The card
+  // still carries the dictionary sense, so the cost is a second section the
+  // reader ignores, not a wrong answer. Reopen if a signal appears that
+  // separates a word being *used* from a word being *named*.
   { text: 'Second', page: NEUTRAL, want: NOTHING, why: 'the SI unit is not what a sentence-opening "Second" means' },
   // Real entities that must keep working.
   { text: 'Alan Turing', page: NEUTRAL, want: 'Alan Turing', why: 'well known person' },
