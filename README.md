@@ -41,6 +41,7 @@ For Firefox, build with `node build.mjs --firefox` and load
 | `npm run check` | Typecheck, tests and build — the gate before any commit |
 | `npm run smoke` | Runs the real pipeline against the real sources |
 | `npm run sweep` | Puts 20 known terms through the entity provider against live Wikipedia |
+| `npm run unused` | Lists code nothing reaches — a name defined once and called nowhere |
 | `npm run preview` | Builds a page that renders the card outside the extension |
 
 `npm run smoke` is separate from `npm run check` on purpose. Unit tests
