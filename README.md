@@ -66,7 +66,10 @@ that, but a network outage is not a reason to block a commit.
    source failing removes a slot, never the card. The first one consulted
    is the page itself: it is scanned locally for a sentence that *defines*
    the selection, which is the only way to learn what a term means on this
-   particular page. It costs no request and sends nothing anywhere.
+   particular page. It costs no request and sends nothing anywhere. Every
+   meaning wears the mark of the source that wrote it, and that mark is the
+   link to the page it came from — the dictionary text is Wiktionary's,
+   under CC BY-SA, and that licence asks for the link back.
 4. **Page context.** The page is profiled once — title, headings,
    description — and that profile biases the search and ranks the senses.
    This is what makes `manifest` on an Iceberg page resolve to Apache
