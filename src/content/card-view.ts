@@ -228,7 +228,7 @@ button.chip[data-state='failed'] { border-color: var(--warn); color: var(--warn)
   min-width: 15px; height: 15px; padding: 0 3px; border-radius: 4px;
   font-size: 9px; font-weight: 700; line-height: 1; letter-spacing: .01em;
   background: hsl(var(--hue) var(--sat) 90%);
-  color: hsl(var(--hue) var(--sat) 30%);
+  color: hsl(var(--hue) var(--sat) 28%);
   flex: none;
 }
 @media (prefers-color-scheme: dark) {
