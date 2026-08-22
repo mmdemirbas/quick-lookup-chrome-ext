@@ -187,7 +187,7 @@ ol.senses li:last-child { margin-bottom: 0; }
    is always there too — colour is a second encoding, never the only one. A
    part of speech outside the five keeps the neutral colour below.
    The lightness is set by the weakest hue rather than the average: at 32%
-   the yellow-green of an adverb reads 4.71:1 on white, and every other hue
+   the yellow-green of an adverb reads 4.70:1 on white, and every other hue
    is further clear of the 4.5 the text size asks for. */
 .pos { color: var(--soft); font-style: italic; margin-right: 5px; }
 .pos[data-hue] { color: hsl(var(--hue) 58% 32%); }

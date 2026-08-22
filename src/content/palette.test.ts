@@ -7,7 +7,7 @@
  * That gap is not theoretical. The `free-dictionary` mark shipped at 4.36:1
  * on its own tile and `tatoeba` at 4.45:1, both under the 4.5:1 that text
  * this size asks for, and the part-of-speech palette was heading the same
- * way at 4.22:1 for an adverb. Nothing failed in either case; the colour was
+ * way at 4.24:1 for an adverb. Nothing failed in either case; the colour was
  * simply too pale to read, which is how this kind of defect ships.
  *
  * So this test computes the contrast the browser will produce, for every
