@@ -17,6 +17,7 @@
  * output is a function of its input and can be asserted exactly.
  */
 import type { Card, Related, Sense, SlotId } from './types.ts';
+import { sourceName } from './source-names.ts';
 
 export type ExportFormat = 'text' | 'markdown' | 'anki';
 
@@ -208,8 +209,12 @@ function referencesOf(card: Card): string[] {
   return urls;
 }
 
+/**
+ * Named rather than listed by id. A copied card leaves the extension, so it
+ * is the copy that has to carry the attribution the sources ask for.
+ */
 function sourcesOf(card: Card): string[] {
-  return card.sources.filter((source) => source !== 'links');
+  return card.sources.filter((source) => source !== 'links').map(sourceName);
 }
 
 /** Joins paragraphs, dropping the empty ones so no double blank line survives. */

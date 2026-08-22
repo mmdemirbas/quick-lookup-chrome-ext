@@ -43,7 +43,10 @@ test('the plain text export carries the query, the gloss and every filled sectio
   assert.match(text, /A metadata file that lists the data files making up a snapshot\./);
   assert.match(text, /On this page:/);
   assert.match(text, /Facts:\n {2}Version: 19\.2\.8\n {2}License: MIT/);
-  assert.match(text, /Sources: stackexchange, page, npm/);
+  // Named, not listed by id. A copy leaves the extension, so it is the copy
+  // that carries the attribution a source's terms ask for — and `npm` is
+  // here to show that a source the table does not know is still printed.
+  assert.match(text, /Sources: Stack Exchange, this page, npm/);
   assert.match(text, /From: Iceberg Table Spec — https:\/\/iceberg\.apache\.org\/spec\/ \(2026-08-14\)/);
 });
 

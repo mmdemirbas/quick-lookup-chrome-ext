@@ -18,6 +18,7 @@ import { formatCard, type ExportContext, type ExportFormat } from '../core/expor
 import { speakable, utteranceLanguage } from '../core/speech.ts';
 import type { Frequency } from '../core/frequency.ts';
 import { markFor } from '../core/marks.ts';
+import { sourceName } from '../core/source-names.ts';
 import { partOfSpeech } from '../core/part-of-speech.ts';
 
 const GAP = 10;
@@ -916,7 +917,7 @@ export class CardView {
       credits.append(el('span', undefined, 'Sources:'));
       for (const source of sources) {
         const one = el('span', 'source');
-        one.append(markEl(source), el('span', undefined, source));
+        one.append(markEl(source), el('span', undefined, sourceName(source)));
         credits.append(one);
       }
     }
