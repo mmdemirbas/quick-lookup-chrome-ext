@@ -46,6 +46,12 @@ test('free dictionary maps senses, pronunciation and related words', async () =>
       'freedictionaryapi.com',
       {
         word: 'ephemeral',
+        // Exactly as the live endpoint returns it. The API is Wiktionary
+        // data under CC BY-SA and names the page each entry came from.
+        source: {
+          url: 'https://en.wiktionary.org/wiki/ephemeral',
+          license: { name: 'CC BY-SA 4.0' },
+        },
         entries: [
           {
             language: { code: 'en' },
@@ -79,6 +85,11 @@ test('free dictionary maps senses, pronunciation and related words', async () =>
   assert.equal(senses[0]?.partOfSpeech, 'adjective');
   // The bibliographic prefix is stripped so the example reads as an example.
   assert.equal(senses[0]?.example, 'the ephemeral fashions of the day');
+  // Taken from the response, not built from the word: the API resolves
+  // redirects and spelling variants, so this is the page the text is from.
+  // The licence asks for this link, which makes it an obligation rather
+  // than a convenience.
+  assert.equal(senses[0]?.url, 'https://en.wiktionary.org/wiki/ephemeral');
 
   const related = result.slots.related ?? [];
   assert.deepEqual(
@@ -120,6 +131,10 @@ test('wiktionary definitions are stripped of markup', async () => {
   assert.equal(senses[0]?.definition, 'Lasting for a short period of time.');
   assert.equal(senses[0]?.example, 'An ephemeral victory.');
   assert.equal(senses[0]?.partOfSpeech, 'adjective');
+  // Where a reader goes, which is not where the data came from: the request
+  // went to the REST definition endpoint, and a reader wants the article.
+  assert.equal(senses[0]?.url, 'https://en.wiktionary.org/wiki/ephemeral');
+  assert.match(http.calls[0] ?? '', /rest_v1\/page\/definition/);
 });
 
 test('datamuse splits its tab-encoded definitions and keeps its tags', async () => {

@@ -29,16 +29,19 @@ function wordCard(): Card {
           definition: 'Lasting for a short period of time.',
           example: 'the ephemeral fashions of the day',
           source: 'freedictionaryapi.com',
+          url: 'https://en.wiktionary.org/wiki/ephemeral',
         },
         {
           partOfSpeech: 'adjective',
           definition: 'Existing for only one day, as with some flowers, insects, and diseases.',
           source: 'freedictionaryapi.com',
+          url: 'https://en.wiktionary.org/wiki/ephemeral',
         },
         {
           partOfSpeech: 'noun',
           definition: 'Something which lasts for a short period of time.',
           source: 'en.wiktionary.org',
+          url: 'https://en.wiktionary.org/wiki/ephemeral',
         },
       ],
       related: [
@@ -190,6 +193,7 @@ function manySensesCard(): Card {
         partOfSpeech,
         definition,
         source: 'en.wiktionary.org',
+        url: 'https://en.wiktionary.org/wiki/bank',
       })),
       translation: {
         text: 'banka; kıyı, sahil; yığın',

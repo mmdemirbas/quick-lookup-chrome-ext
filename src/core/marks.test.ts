@@ -68,3 +68,11 @@ test('a source that is not a website is toned down', () => {
   // It sits in the same row as the ones that did, and should not shout.
   assert.ok(markFor('page').sat < markFor('wikipedia').sat);
 });
+
+test('a source named by its host reaches the same mark as the chip pointing at it', () => {
+  // Providers name themselves the way a reader would recognise them —
+  // `en.wiktionary.org`, not `wiktionary`. That name is what a sense carries,
+  // and the mark beside the sense has to match the chip in the link row.
+  assert.deepEqual(markFor('en.wiktionary.org'), markFor('wiktionary'));
+  assert.deepEqual(markFor('freedictionaryapi.com'), markFor('free-dictionary'));
+});

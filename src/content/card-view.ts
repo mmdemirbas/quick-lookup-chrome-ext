@@ -18,6 +18,7 @@ import { formatCard, type ExportContext, type ExportFormat } from '../core/expor
 import { speakable, utteranceLanguage } from '../core/speech.ts';
 import type { Frequency } from '../core/frequency.ts';
 import { markFor } from '../core/marks.ts';
+import { partOfSpeech } from '../core/part-of-speech.ts';
 
 const GAP = 10;
 const MARGIN = 8;
@@ -170,9 +171,25 @@ button.icon.back { margin-right: 2px; font-size: 15px; line-height: 1; }
 ol.senses { margin: 0; padding-left: 18px; }
 ol.senses li { margin-bottom: 7px; }
 ol.senses li:last-child { margin-bottom: 0; }
-.pos { color: var(--accent); font-style: italic; margin-right: 5px; }
+/* One hue per class of word, set inline from the palette in core. The label
+   is always there too — colour is a second encoding, never the only one. A
+   part of speech outside the five keeps the neutral colour below.
+   The lightness is set by the weakest hue rather than the average: at 32%
+   the yellow-green of an adverb reads 4.71:1 on white, and every other hue
+   is further clear of the 4.5 the text size asks for. */
+.pos { color: var(--soft); font-style: italic; margin-right: 5px; }
+.pos[data-hue] { color: hsl(var(--hue) 58% 32%); }
+@media (prefers-color-scheme: dark) {
+  .pos[data-hue] { color: hsl(var(--hue) 62% 71%); }
+}
 .example { display: block; color: var(--soft); font-style: italic; margin-top: 2px; }
-.origin { color: var(--faint); font-size: 11px; margin-left: 4px; }
+/* Where a definition came from, and a way to read the rest of it. The
+   dictionary text is Wiktionary's under CC BY-SA, which asks for the link
+   back, so this is an obligation the card owes rather than an extra. */
+a.origin { margin-left: 5px; text-decoration: none; white-space: nowrap; }
+a.origin .mark { min-width: 13px; height: 13px; font-size: 8px; vertical-align: 1px; }
+a.origin:hover .mark { outline: 1px solid var(--accent); outline-offset: 1px; }
+a.origin:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
 
 /* A sentence lifted from the page, marked as quoted so it is not mistaken
    for the extension's own words. */
@@ -1022,10 +1039,42 @@ export class CardView {
       case 'senses': {
         const senses = slot.data as Sense[];
         const list = el('ol', 'senses');
+        // Nine meanings from one dictionary would otherwise carry nine
+        // identical links to one page: a column of the same tile, which is
+        // noise rather than information. The mark is drawn where the answer
+        // starts coming from somewhere else, so a run of it reads as one
+        // source and a second tile means the source changed. The expander
+        // draws through the same closure, so revealing the rest continues
+        // the run instead of restarting it.
+        let lastOrigin = '';
         const draw = (sense: Sense) => {
           const item = el('li');
-          if (sense.partOfSpeech) item.append(el('span', 'pos', sense.partOfSpeech));
+          if (sense.partOfSpeech) {
+            const pos = el('span', 'pos', sense.partOfSpeech);
+            const colour = partOfSpeech(sense.partOfSpeech);
+            if (colour) {
+              pos.dataset.hue = String(colour.hue);
+              pos.style.setProperty('--hue', String(colour.hue));
+            }
+            item.append(pos);
+          }
           item.append(document.createTextNode(sense.definition));
+          // A dictionary pack is a file on this machine and has nowhere to
+          // send anyone, so the mark appears only when there is somewhere.
+          const provenance = sense.url ? `${sense.source} ${sense.url}` : '';
+          const changed = provenance !== lastOrigin;
+          lastOrigin = provenance;
+          if (sense.url && changed) {
+            const origin = el('a', 'origin');
+            origin.href = sense.url;
+            origin.target = '_blank';
+            origin.rel = 'noreferrer noopener';
+            origin.title = `Read this in full — ${sense.source}`;
+            origin.setAttribute('aria-label', `Read this definition in full at ${sense.source}`);
+            origin.append(markEl(sense.source));
+            origin.addEventListener('click', () => this.#engage());
+            item.append(origin);
+          }
           if (sense.example) item.append(el('em', 'example', sense.example));
           list.append(item);
         };

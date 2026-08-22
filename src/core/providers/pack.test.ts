@@ -125,6 +125,10 @@ test('a monolingual pack writes definitions, not a translation', async () => {
     'A manifest list plus its manifests.',
   ]);
   assert.equal(result?.slots.senses?.[0]?.source, 'Iceberg glossary');
+  // A pack is a file on this device. There is no page to send a reader to,
+  // and the card must not invent one — an empty link would be worse than
+  // none, and the licence link the online dictionaries owe does not apply.
+  assert.equal(result?.slots.senses?.[0]?.url, undefined);
 });
 
 test('a long entry is capped rather than turning the card into a wall', async () => {

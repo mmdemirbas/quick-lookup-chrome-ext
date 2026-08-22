@@ -18,6 +18,11 @@ const MAX_EQUIVALENTS = 5;
 
 type Response = {
   word?: string;
+  /**
+   * The API's own attribution block. `url` is the Wiktionary page this entry
+   * was extracted from, which is the link its CC BY-SA licence asks for.
+   */
+  source?: { url?: string };
   entries?: Array<{
     language?: { code?: string };
     partOfSpeech?: string;
@@ -120,6 +125,10 @@ export const freeDictionaryProvider: Provider = {
           ...(example ? { example } : {}),
           ...(sense.tags?.length ? { labels: sense.tags } : {}),
           source: SOURCE,
+          // Taken from the response rather than built from the word: the API
+          // resolves redirects and spelling variants, so the page it names is
+          // the page the text actually came from.
+          ...(body.source?.url ? { url: body.source.url } : {}),
         });
         // Attached per sense, so these are the head-words for this meaning
         // rather than for the spelling. Senses arrive in dictionary order,

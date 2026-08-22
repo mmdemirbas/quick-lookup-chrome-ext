@@ -35,6 +35,9 @@ export const wiktionaryProvider: Provider = {
     const url = `https://${lang}.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(
       title,
     )}`;
+    // Where a reader goes, as opposed to where the data comes from. The
+    // content is CC BY-SA and the licence asks for the link back.
+    const page = `https://${lang}.wiktionary.org/wiki/${encodeURIComponent(title)}`;
 
     const body = await context.http.json<Response>(url, { signal: context.signal });
     const groups = body[lang];
@@ -53,6 +56,7 @@ export const wiktionaryProvider: Provider = {
           definition,
           ...(example ? { example } : {}),
           source: SOURCE,
+          url: page,
         });
       }
     }

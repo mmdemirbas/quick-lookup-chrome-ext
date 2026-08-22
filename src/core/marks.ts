@@ -86,6 +86,7 @@ const HOST_SITES: Array<[string, string]> = [
   ['npmjs.com', 'registry'],
   ['pypi.org', 'registry'],
   ['crates.io', 'registry'],
+  ['freedictionaryapi.com', 'free-dictionary'],
 ];
 
 const HOSTS = [...HOST_SITES].sort((a, b) => b[0].length - a[0].length);
@@ -121,6 +122,13 @@ function initialsOf(text: string): string {
 export function markFor(id: string, url?: string): Mark {
   const named = SITES[id];
   if (named) return { letter: named.letter, hue: named.hue, sat: named.sat ?? DEFAULT_SAT };
+
+  // Some ids are hosts already. A sense says where it came from with a name
+  // a reader would recognise — `en.wiktionary.org`, not `wiktionary` — and
+  // that has to reach the same mark as the chip pointing at the same site.
+  const byName = siteForHost(id);
+  const asHost = byName ? SITES[byName] : undefined;
+  if (asHost) return { letter: asHost.letter, hue: asHost.hue, sat: asHost.sat ?? DEFAULT_SAT };
 
   if (url) {
     let host = '';

@@ -85,6 +85,15 @@ export type Sense = {
   example?: string;
   labels?: string[];
   source: string;
+  /**
+   * Where a reader can read this sense in full.
+   *
+   * Not decoration: the dictionary data is Wiktionary's, under CC BY-SA,
+   * and that licence asks for a link back to the page it came from. Absent
+   * when there is no page to link — an installed dictionary pack is a file
+   * on this machine.
+   */
+  url?: string;
 };
 
 export type RelatedKind = 'synonym' | 'antonym' | 'related' | 'collocation';
