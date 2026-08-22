@@ -1,6 +1,7 @@
 /** The message contract between the content script and the service worker. */
 import type { Card, PageContext } from '../core/types.ts';
 import type { Settings } from '../core/settings.ts';
+import type { HistoryItem } from '../core/store.ts';
 import type { Capabilities } from '../platform/ai.ts';
 
 export type LookupMessage = {
@@ -43,10 +44,22 @@ export type ToBackground =
 
 /** Partial results stream to the content script as separate messages. */
 export type CardUpdateMessage = { type: 'QL_CARD'; card: Card };
+/**
+ * The list of recent lookups changed.
+ *
+ * Sent after the write, not with the card: a card is finished before its
+ * lookup is recorded, so a surface that refetched on the card would ask a
+ * moment too early and draw the list without the word it just showed.
+ */
+export type HistoryChangedMessage = { type: 'QL_HISTORY'; items: HistoryItem[] };
 export type TriggerLookupMessage = { type: 'QL_TRIGGER_LOOKUP'; text?: string };
 export type SettingsChangedMessage = { type: 'QL_SETTINGS_CHANGED'; settings: Settings };
 
-export type ToContent = CardUpdateMessage | TriggerLookupMessage | SettingsChangedMessage;
+export type ToContent =
+  | CardUpdateMessage
+  | HistoryChangedMessage
+  | TriggerLookupMessage
+  | SettingsChangedMessage;
 
 export type StatusResponse = {
   capabilities: Capabilities;

@@ -435,6 +435,110 @@ async function checkHistory(context: BrowserContext, id: string): Promise<void> 
 }
 
 /**
+ * The panel: the same card, in a place the page cannot take away.
+ *
+ * Three things are worth proving and only a browser can. That a lookup made
+ * on a page reaches the panel at all, which is a different delivery path from
+ * the one every other check exercises — a broadcast to extension pages rather
+ * than a message to a tab. That the panel can start a lookup of its own, with
+ * no tab behind it, which the service worker used to refuse outright. And
+ * that the service worker really cannot open the panel on its own, which is
+ * the constraint that decided where the entry point had to go.
+ */
+async function checkPanel(
+  context: BrowserContext,
+  worker: Worker,
+  id: string,
+  origin: string,
+): Promise<void> {
+  const panel = await context.newPage();
+  await panel.goto(`chrome-extension://${id}/panel.html`, { waitUntil: 'domcontentloaded' });
+
+  record(
+    'the panel opens with nothing in it and says so',
+    await panel.locator('#emptyState').isVisible(),
+    (await panel.locator('#emptyState b').textContent()) ?? 'no empty state',
+  );
+
+  // Why the panel is opened from the context menu and the popup, and not
+  // from a button in the card.
+  //
+  // A press inside the card reaches the extension as a message, and by then
+  // the gesture is over — so the call would be made by the service worker
+  // with nothing behind it. That is the case checked here, and it is
+  // refused. An extension page is not refused, which is the other half of
+  // the rule and the reason the popup's button works. Neither was obvious
+  // from the documentation, which says only "in response to a user action".
+  const fromWorker = await worker.evaluate(async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      await chrome.sidePanel.open({ windowId: tab?.windowId ?? 1 });
+      return 'opened';
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  });
+  record(
+    'the service worker cannot open the panel unprompted',
+    /gesture|user action/i.test(fromWorker),
+    fromWorker,
+  );
+
+  // A lookup made on a page, mirrored into the panel. The panel is a
+  // background tab while this happens, which is the real case.
+  const reader = await context.newPage();
+  await reader.goto(origin, { waitUntil: 'domcontentloaded' });
+  await paragraph(reader, 'Readers use the current snapshot').dblclick({ position: { x: 30, y: 10 } });
+  const mirrored = await panel
+    .locator('quick-lookup-card[docked]')
+    .waitFor({ timeout: 12_000 })
+    .then(() => panel.evaluate(() =>
+      document.querySelector('quick-lookup-card')?.shadowRoot?.querySelector('.query')?.textContent ?? '',
+    ))
+    .catch(() => '');
+  record(
+    'a lookup made on a page turns up in the panel',
+    mirrored.trim().length > 0,
+    mirrored || 'the panel never received a card',
+  );
+  await reader.close();
+
+  // And the panel can start one itself, from a word it remembers. There is no
+  // tab behind this request, which is the case the service worker used to
+  // drop on the floor.
+  const word = panel.locator('#history li button.word').first();
+  const listed = await word.waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
+  if (!listed) {
+    record('a word in the panel’s list can be looked up again', false, 'the list was empty');
+    await panel.close();
+    return;
+  }
+  const asked = (await word.textContent()) ?? '';
+  await word.click();
+  const answered = await panel
+    .locator('quick-lookup-card')
+    .waitFor({ timeout: 12_000 })
+    .then(() => panel.waitForFunction(
+      (expected) => {
+        const root = document.querySelector('quick-lookup-card')?.shadowRoot;
+        const query = root?.querySelector('.query')?.textContent?.trim() ?? '';
+        const sections = root?.querySelectorAll('section:not(.pending)').length ?? 0;
+        return query === expected && sections > 0;
+      },
+      asked,
+      { timeout: 12_000 },
+    ).then(() => true))
+    .catch(() => false);
+  record(
+    'a word in the panel’s list can be looked up again',
+    answered,
+    answered ? `${asked} answered with no tab behind it` : `${asked} never came back`,
+  );
+
+  await panel.close();
+}
+
+/**
  * A dictd dictionary, built here rather than downloaded.
  *
  * The real FreeDict release is 2 MB behind a network and inside a `.tar.xz`
@@ -846,6 +950,7 @@ try {
   await checkTranslationDownload(context, extensionId);
   await checkFollowing(context, origin);
   await checkPinning(context, origin);
+  await checkPanel(context, worker, extensionId, origin);
   await checkHistory(context, extensionId);
   await checkDictionaryPack(context, extensionId, origin);
 

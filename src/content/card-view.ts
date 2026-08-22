@@ -38,6 +38,18 @@ const STYLE = `
   z-index: 2147483646;
   contain: layout paint style;
 }
+/* Docked: the card is the panel's content rather than something floating
+   over a page, so it gives up its own frame and takes the width it is
+   given. The panel scrolls, so the height cap goes with the frame. */
+:host([docked]) { position: static; display: block; }
+:host([docked]) .card {
+  width: 100%;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
 * { box-sizing: border-box; }
 .card {
   --bg: #ffffff;
@@ -479,7 +491,16 @@ export class CardView {
   /** The lookup this card is waiting for, so a late answer finds its card. */
   #requestId = '';
 
-  constructor(private readonly callbacks: CardViewCallbacks) {}
+  /**
+   * `dock` turns the card into a panel's content instead of an overlay: it
+   * is mounted inside that element, fills it, and drops every affordance
+   * that only makes sense floating over a page — placement, dragging,
+   * pinning, and the two buttons that act on the page it is over.
+   */
+  constructor(
+    private readonly callbacks: CardViewCallbacks,
+    private readonly dock?: HTMLElement,
+  ) {}
 
   get isOpen(): boolean {
     return this.#host?.isConnected === true && this.#host.style.display !== 'none';
@@ -565,6 +586,12 @@ export class CardView {
     close.setAttribute('aria-label', 'Close');
     close.addEventListener('click', () => this.callbacks.onClose());
 
+    // Quietening a site and closing act on the page the card is over. A
+    // docked card is not over anything, and its panel is closed by the
+    // browser's own control.
+    quiet.hidden = this.dock !== undefined;
+    close.hidden = this.dock !== undefined;
+
     header.append(back, title, pin, intent, speaker, quiet, close);
     this.#speaker = speaker;
     this.#back = back;
@@ -587,12 +614,20 @@ export class CardView {
     // The two edges of the card, which is what a window is dragged by
     // everywhere else. The body is deliberately not a drag surface: it is the
     // answer, and dragging across it selects text.
-    this.#makeDraggable(header);
-    this.#makeDraggable(footer);
+    if (!this.dock) {
+      this.#makeDraggable(header);
+      this.#makeDraggable(footer);
+    }
     card.addEventListener('wheel', (event) => event.stopPropagation(), { passive: true });
 
     root.append(style, card);
-    document.documentElement.append(host);
+    if (this.dock) {
+      host.setAttribute('docked', '');
+      host.style.display = 'block';
+      this.dock.append(host);
+    } else {
+      document.documentElement.append(host);
+    }
 
     this.#host = host;
     this.#root = root;
@@ -777,6 +812,8 @@ export class CardView {
    * height only change when the space the card needs has actually changed.
    */
   #place(): void {
+    // A docked card is placed by the panel it fills, not by an anchor.
+    if (this.dock) return;
     const host = this.#host;
     const card = this.#card;
     const anchor = this.#anchor;

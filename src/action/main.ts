@@ -1,9 +1,12 @@
 /**
- * Toolbar popup. Two jobs: say whether the on-device model is available,
- * and let the current site be quietened without opening the full settings.
+ * Toolbar popup. Three jobs: say whether the browser has a translator, let
+ * the current site be quietened without opening the full settings, and open
+ * the panel — one of the two places a browser will accept that request from.
  */
 import { mergeSettings, triggerModeFor, type TriggerMode } from '../core/settings.ts';
 import type { HistoryItem } from '../core/store.ts';
+import { renderHistory as drawHistory } from '../shared/history-list.ts';
+import { openPanel } from '../shared/panel.ts';
 import { ext } from '../platform/browser.ts';
 import type { StatusResponse } from '../shared/messages.ts';
 
@@ -13,6 +16,24 @@ const siteLabel = document.getElementById('siteLabel');
 const settingsButton = document.getElementById('settings');
 
 settingsButton?.addEventListener('click', () => ext.runtime.openOptionsPage());
+
+/**
+ * Read now rather than in the handler. Firefox requires the sidebar to be
+ * opened from inside a user-action handler, and an await ends that handler
+ * before the call is made.
+ */
+let windowId: number | undefined;
+void ext.windows?.getCurrent().then((window) => {
+  windowId = window.id;
+});
+
+document.getElementById('openPanel')?.addEventListener('click', () => {
+  openPanel(windowId);
+  // The popup closes itself when it loses focus to the panel, but not
+  // reliably on every browser, and a popup left open over a panel is in
+  // the way of the thing it just opened.
+  window.close();
+});
 
 void ext.runtime.sendMessage({ type: 'QL_GET_STATUS' }).then((status: StatusResponse) => {
   if (!statusBox) return;
@@ -41,55 +62,10 @@ void ext.runtime.sendMessage({ type: 'QL_GET_STATUS' }).then((status: StatusResp
   statusBox.append(versionLine);
 });
 
-/**
- * Recent lookups, starred ones first.
- *
- * Starring is what turns the history from a log into a list worth keeping:
- * a starred entry survives both the size cap and Clear.
- */
+/** The popup lists what was looked up; the panel is where one can be reopened. */
 function renderHistory(items: HistoryItem[]): void {
   const list = document.getElementById('history');
-  if (!list) return;
-  list.replaceChildren();
-
-  if (items.length === 0) {
-    const empty = document.createElement('li');
-    empty.className = 'empty';
-    empty.textContent = 'Nothing looked up yet.';
-    list.append(empty);
-    return;
-  }
-
-  const ordered = [...items].sort(
-    (a, b) => Number(b.starred ?? false) - Number(a.starred ?? false) || b.at - a.at,
-  );
-
-  for (const item of ordered.slice(0, 40)) {
-    const row = document.createElement('li');
-
-    const star = document.createElement('button');
-    star.type = 'button';
-    star.className = item.starred ? 'star on' : 'star';
-    star.textContent = item.starred ? '★' : '☆';
-    star.title = item.starred ? 'Unstar' : 'Keep this one';
-    star.addEventListener('click', () => {
-      void ext.runtime
-        .sendMessage({ type: 'QL_STAR', query: item.query, host: item.host })
-        .then((next: HistoryItem[]) => renderHistory(next));
-    });
-
-    const word = document.createElement('span');
-    word.className = 'word';
-    word.textContent = item.query;
-
-    const gloss = document.createElement('span');
-    gloss.className = 'gloss';
-    gloss.textContent = item.gloss ?? item.host;
-    gloss.title = `${item.gloss ?? ''} — ${item.host}`.trim();
-
-    row.append(star, word, gloss);
-    list.append(row);
-  }
+  if (list) drawHistory(items, { list });
 }
 
 document.getElementById('clearHistory')?.addEventListener('click', () => {

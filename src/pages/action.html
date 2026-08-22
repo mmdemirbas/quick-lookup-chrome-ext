@@ -32,6 +32,13 @@
         width: 100%; background: var(--accent); color: #fff; border: 0;
         border-radius: 8px; padding: 9px 12px; font: inherit; font-weight: 600; cursor: pointer;
       }
+      /* One primary action per surface. Settings is the rarer of the two and
+         says so by weight rather than by being somewhere else. */
+      button.secondary {
+        background: none; color: var(--soft); border: 1px solid var(--border);
+        font-weight: 500; margin-top: 6px;
+      }
+      button.secondary:hover { color: var(--text); }
       .site { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
       .site label { flex: 1; font-size: 12.5px; color: var(--soft); }
       select {
@@ -78,7 +85,8 @@
     </div>
     <h2>Recent <button id="clearHistory" type="button">Clear</button></h2>
     <ul id="history"><li class="empty">Nothing looked up yet.</li></ul>
-    <button id="settings" type="button">Open settings</button>
+    <button id="openPanel" type="button">Open the panel</button>
+    <button id="settings" type="button" class="secondary">Open settings</button>
     <script src="action.js"></script>
   </body>
 </html>

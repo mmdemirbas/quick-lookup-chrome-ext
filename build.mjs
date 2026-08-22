@@ -23,6 +23,7 @@ const ENTRIES = [
   { in: 'src/content/index.ts', out: 'content', format: 'iife' },
   { in: 'src/options/main.ts', out: 'options', format: 'iife' },
   { in: 'src/action/main.ts', out: 'action', format: 'iife' },
+  { in: 'src/panel/main.ts', out: 'panel', format: 'iife' },
 ];
 
 async function buildTarget(target) {
@@ -67,7 +68,7 @@ async function buildTarget(target) {
     await writeFile(join(outdir, 'icons', `${size}.png`), iconPng(size));
   }
 
-  for (const page of ['options.html', 'action.html']) {
+  for (const page of ['options.html', 'action.html', 'panel.html']) {
     const src = join(root, 'src', 'pages', page);
     if (existsSync(src)) await cp(src, join(outdir, page));
   }

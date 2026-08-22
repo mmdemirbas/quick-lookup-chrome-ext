@@ -113,6 +113,25 @@ Per site, or globally, the trigger can be changed to a handle, to
 require a modifier, or to nothing at all. The toolbar popup switches the
 current site without opening settings.
 
+## The panel
+
+The card lives in the page, so it dies with the page. The panel does not:
+it is the same card, in a place the page cannot take away. A word looked up
+before you navigated is still there afterwards, and the list under it
+reopens anything looked up earlier without finding the page it was on.
+
+Open it from the toolbar popup, or by right-clicking and choosing "Open the
+Quick Lookup panel". It cannot be opened from a button in the card: that
+press reaches the extension as a message, and by then the user action the
+browser requires is over. Measured, not assumed — a call from the service
+worker with nothing behind it is refused with "may only be called in
+response to a user gesture", and the check that proves it runs in the
+browser suite.
+
+It mirrors rather than competes. Whatever was looked up last, in whichever
+tab, is what the panel shows; the only lookup it starts itself is the one
+you ask for from its list.
+
 ## Comparing two words
 
 Drag a card by its header or its foot and it detaches: it keeps its answer,
@@ -141,9 +160,9 @@ Every card also carries the sentence you met the word in, with the word
 marked. That is what lets a card that has been dragged aside — or a note read
 weeks later — still say why the word was worth looking up.
 
-Lookups are kept in the toolbar popup. Starring one makes it survive both the
-size cap and Clear, which is what turns the list from a log into something
-worth coming back to.
+Lookups are kept in the toolbar popup and in the panel. Starring one makes it
+survive both the size cap and Clear, which is what turns the list from a log
+into something worth coming back to.
 
 ## Permissions
 
@@ -153,6 +172,7 @@ worth coming back to.
 | `contextMenus` | Right-click lookup on a selection |
 | `unlimitedStorage` | Installed dictionary packs. One is about five megabytes of definitions, and the default extension quota is not much more than that in total |
 | `activeTab` | Reading the selection when triggered by the shortcut |
+| `sidePanel` | Opening the panel. Chromium only; Firefox's sidebar needs no permission |
 | `<all_urls>` content script | The selection handle must be able to appear on any page. The always-on script only listens for selection changes; everything else is loaded on first use |
 | Fourteen host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Tatoeba, Wikidata, Wikimedia images, Stack Exchange, npm, PyPI, crates.io, MDN, MyMemory and Google Translate. Each is listed with its reason in `manifest.config.js`. Stack Exchange, the registries and MDN are asked only for technical terms, the registries only on a page about that ecosystem, and the two translators only if you switch translation on |
 

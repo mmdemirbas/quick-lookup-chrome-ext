@@ -72,6 +72,12 @@ export function manifestFor(target) {
     return {
       ...BASE,
       background: { scripts: ['background.js'], type: 'module' },
+      sidebar_action: {
+        default_panel: 'panel.html',
+        default_title: 'Quick Lookup',
+        default_icon: BASE.icons,
+        open_at_install: false,
+      },
       browser_specific_settings: {
         gecko: { id: 'quick-lookup@mmdemirbas', strict_min_version: '128.0' },
       },
@@ -79,6 +85,10 @@ export function manifestFor(target) {
   }
   return {
     ...BASE,
+    // Chromium calls it a side panel and needs its own permission for the
+    // API that opens one. Firefox calls it a sidebar and needs neither.
+    permissions: [...BASE.permissions, 'sidePanel'],
+    side_panel: { default_path: 'panel.html' },
     background: { service_worker: 'background.js', type: 'module' },
     minimum_chrome_version: '116',
   };

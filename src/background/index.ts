@@ -27,6 +27,7 @@ import {
 import { translateOnline, UNKNOWN_LANGUAGE } from '../core/online-translate.ts';
 import { sameLanguage } from '../core/language.ts';
 import type { StatusResponse, ToBackground } from '../shared/messages.ts';
+import { openPanel } from '../shared/panel.ts';
 
 const VERSION = ext.runtime.getManifest().version;
 const http = createHttpClient(VERSION);
@@ -59,7 +60,12 @@ const persistent = new PersistentStore<Card>(localStore(), {
 });
 
 /** One controller per tab: a new lookup cancels whatever that tab was doing. */
-const inFlight = new Map<number, AbortController>();
+/**
+ * One lookup at a time per surface. A tab is keyed by its id; the panel has
+ * no tab of its own, so it gets a key that no tab id can collide with.
+ */
+const PANEL = 'panel';
+const inFlight = new Map<number | typeof PANEL, AbortController>();
 
 async function loadSettings(): Promise<Settings> {
   const stored = await ext.storage.sync.get('settings');
@@ -79,9 +85,22 @@ async function saveSettings(next: Settings): Promise<void> {
   }
 }
 
-function send(tabId: number, card: Card): void {
-  ext.tabs.sendMessage(tabId, { type: 'QL_CARD', card }).catch(() => {
-    // The tab navigated away mid-lookup. The abort below handles the rest.
+/**
+ * Cards go to the tab that asked and to every extension page at once.
+ *
+ * The panel is a mirror rather than a second client: it shows whatever was
+ * looked up last, in whichever tab, which is what lets an answer outlive the
+ * page it was found on. A lookup started from the panel itself has no tab,
+ * and then only the broadcast carries it.
+ */
+function send(tabId: number | undefined, card: Card): void {
+  if (tabId !== undefined) {
+    ext.tabs.sendMessage(tabId, { type: 'QL_CARD', card }).catch(() => {
+      // The tab navigated away mid-lookup. The abort below handles the rest.
+    });
+  }
+  ext.runtime.sendMessage({ type: 'QL_CARD', card }).catch(() => {
+    // No extension page is open. This is the usual case, not a failure.
   });
 }
 
@@ -163,14 +182,15 @@ async function addGloss(
 }
 
 async function handleLookup(
-  tabId: number,
+  tabId: number | undefined,
   requestId: string,
   text: string,
   page: LookupRequest['page'],
 ): Promise<void> {
-  inFlight.get(tabId)?.abort('superseded');
+  const surface = tabId ?? PANEL;
+  inFlight.get(surface)?.abort('superseded');
   const controller = new AbortController();
-  inFlight.set(tabId, controller);
+  inFlight.set(surface, controller);
 
   const trimmed = text.slice(0, settings.limits.maxSelectionChars);
   const lang = uiLanguage().split('-')[0] || 'en';
@@ -186,14 +206,22 @@ async function handleLookup(
   });
   const key = lookupKey(trimmed, decision.intent, page.host ?? '', lang, shape);
 
-  const remember = (card: Card) =>
-    persistent.recordLookup({
+  const remember = async (card: Card) => {
+    await persistent.recordLookup({
       query: trimmed,
       intent: decision.intent,
       host: page.host ?? '',
       at: Date.now(),
       ...(card.slots.gloss?.data ? { gloss: card.slots.gloss.data } : {}),
     });
+    // The panel lists recent lookups and is open while they happen, so it
+    // has to be told. The card cannot carry this: it is finished before the
+    // write that this awaits.
+    const items = await persistent.history();
+    ext.runtime.sendMessage({ type: 'QL_HISTORY', items }).catch(() => {
+      // No extension page is open, which is the usual case.
+    });
+  };
 
   const cached = memory.get(key) ?? (await persistent.read(key));
   if (cached) {
@@ -237,7 +265,7 @@ async function handleLookup(
     void remember(card);
   } finally {
     clearTimeout(budget);
-    if (inFlight.get(tabId) === controller) inFlight.delete(tabId);
+    if (inFlight.get(surface) === controller) inFlight.delete(surface);
   }
 }
 
@@ -246,7 +274,8 @@ ext.runtime.onMessage.addListener((message: ToBackground, sender, sendResponse) 
 
   switch (message.type) {
     case 'QL_LOOKUP':
-      if (tabId === undefined) return false;
+      // A message with no tab behind it came from the panel, which is an
+      // extension page. Its lookups run the same way and answer by broadcast.
       void loadSettings()
         .then(() => handleLookup(tabId, message.requestId, message.text, message.page))
         .catch(() => {
@@ -314,6 +343,16 @@ ext.runtime.onInstalled.addListener(() => {
     title: 'Quick Lookup "%s"',
     contexts: ['selection'],
   });
+  // The panel cannot be opened by the card's own button: that press reaches
+  // the extension as a message, leaving the service worker to make the call
+  // with no gesture behind it, and Chrome refuses that outright. A
+  // context-menu click hands the worker a real one, and is the entry point
+  // Chrome's own documentation uses.
+  ext.contextMenus.create({
+    id: 'quick-lookup-panel',
+    title: 'Open the Quick Lookup panel',
+    contexts: ['all'],
+  });
   // Expired entries are dropped on read, but a key never read again would
   // otherwise occupy storage forever.
   void persistent.prune();
@@ -324,6 +363,10 @@ ext.runtime.onStartup?.addListener(() => {
 });
 
 ext.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'quick-lookup-panel') {
+    openPanel(tab?.windowId);
+    return;
+  }
   if (info.menuItemId !== 'quick-lookup' || tab?.id === undefined) return;
   ext.tabs
     .sendMessage(tab.id, { type: 'QL_TRIGGER_LOOKUP', text: info.selectionText })
