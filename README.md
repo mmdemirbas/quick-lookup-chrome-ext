@@ -13,8 +13,8 @@ Design and reasoning: `SPEC.md`.
 Landscape research and the decisions behind it: `docs/redesign-2026-08-11.md`.
 Competitor survey, defect causes and the current roadmap: `docs/round-2026-08-16.md`.
 Health check, sources and relevance results: `docs/status-2026-08-16.md`.
-Latest: `docs/status-2026-08-17.md` — three defects that answered instead of
-failing, and what is deliberately still open.
+Latest: `docs/status-2026-08-22.md` — the panel, the link every meaning now
+carries, and two colours that were too pale to read.
 
 ## Build and load
 
