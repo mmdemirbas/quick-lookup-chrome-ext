@@ -220,6 +220,38 @@
       </fieldset>
 
       <fieldset>
+        <legend>Chat</legend>
+        <p class="lede">
+          The panel can discuss the page you are reading with Claude. This is the
+          only feature that sends page content anywhere: right-clicking a page and
+          choosing <b>Discuss this page with Claude</b> sends that page's readable
+          text to Anthropic's API. Nothing is sent without that gesture, and nothing
+          at all is sent while no key is stored.
+        </p>
+        <div class="row">
+          <label for="chatKey">API key</label>
+          <input id="chatKey" type="password" autocomplete="off" spellcheck="false"
+                 placeholder="sk-ant-…" />
+        </div>
+        <div class="row"><span id="chatKeyState" class="hint"></span>
+          <button id="chatForget" class="secondary" type="button" hidden>Forget key</button>
+        </div>
+        <div class="row">
+          <label for="chatModel">Model for new conversations</label>
+          <select id="chatModel"></select>
+        </div>
+        <div class="row">
+          <label for="chatContext">Page characters per question</label>
+          <input id="chatContext" type="number" min="2000" max="200000" step="1000" />
+        </div>
+        <p class="hint">
+          A larger budget sends more of the page and costs more. The panel says when
+          a page was longer than the budget, so an answer about half a page is never
+          presented as an answer about the page.
+        </p>
+      </fieldset>
+
+      <fieldset>
         <legend>Dictionary packs</legend>
         <p class="lede">
           A pack is a dictionary file kept on this device. It answers instantly, works

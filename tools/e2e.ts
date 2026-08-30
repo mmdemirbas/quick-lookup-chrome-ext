@@ -445,6 +445,85 @@ async function checkHistory(context: BrowserContext, id: string): Promise<void> 
  * that the service worker really cannot open the panel on its own, which is
  * the constraint that decided where the entry point had to go.
  */
+/**
+ * The panel's Chat view, without the network.
+ *
+ * The one thing this cannot check is the answer, because that needs a real
+ * key and a real request. What it does check is everything that would break
+ * silently around it: that the second view exists at all, that a missing key
+ * is said out loud instead of being discovered after typing a paragraph, and
+ * that an attached page reports how much of itself was actually sent. The
+ * last one is the load-bearing case — an answer about the first third of a
+ * page presented as an answer about the page is a wrong answer that looks
+ * like a right one.
+ */
+async function checkChat(context: BrowserContext, worker: Worker, id: string): Promise<void> {
+  const panel = await context.newPage();
+  await panel.goto(`chrome-extension://${id}/panel.html`, { waitUntil: 'domcontentloaded' });
+  await panel.click('#tabChat');
+
+  record(
+    'the panel has a second view for conversation',
+    await panel.locator('#chatLog').isVisible(),
+    (await panel.locator('#tabChat').getAttribute('aria-selected')) === 'true'
+      ? 'chat selected'
+      : 'tab did not switch',
+  );
+
+  await panel.waitForTimeout(300);
+  const noKey = (await panel.locator('#chatEmpty').innerText()) ?? '';
+  record(
+    'with no key stored it says so before anything is typed',
+    /API key is needed/i.test(noKey),
+    noKey.split('\n')[0] ?? '',
+  );
+
+  // Broadcast the way the context menu's collection does, so the chip is
+  // rendered by the same path a real page takes.
+  await worker.evaluate(() => {
+    const excerpt = 'Deployment times fell by 40 percent after the migration. '.repeat(50);
+    return chrome.runtime.sendMessage({
+      type: 'QL_CHAT_ATTACH',
+      attachment: {
+        url: 'https://example.com/posts/deploys',
+        host: 'example.com',
+        title: 'We cut deployment time by 40%',
+        selection: 'deployment time by 40%',
+        excerpt,
+        // Three times what was sent, so the notice has to say a third.
+        fullLength: excerpt.length * 3,
+      },
+    });
+  });
+  await panel.waitForTimeout(400);
+
+  const chip = (await panel.locator('#chatAttachment').innerText()) ?? '';
+  record(
+    'an attached page names itself and the selection it came with',
+    chip.includes('example.com') && chip.includes('deployment time by 40%'),
+    chip.replace(/\n/g, ' | '),
+  );
+  record(
+    'a page longer than the budget says how much of it was sent',
+    /33% sent/.test(chip),
+    chip.includes('sent') ? (chip.match(/first \d+% sent/)?.[0] ?? '') : 'no clipping notice',
+  );
+
+  // Dropping the page must leave the question intact: asking the same thing
+  // without the page is a normal thing to want, not a reason to start over.
+  await panel.fill('#chatInput', 'Is that plausible?');
+  await panel.click('#chatAttachment .drop');
+  await panel.waitForTimeout(200);
+  record(
+    'the page can be dropped without losing the question',
+    (await panel.locator('#chatAttachment').isHidden()) &&
+      (await panel.locator('#chatInput').inputValue()) === 'Is that plausible?',
+    'chip gone, question kept',
+  );
+
+  await panel.close();
+}
+
 async function checkPanel(
   context: BrowserContext,
   worker: Worker,
@@ -951,6 +1030,7 @@ try {
   await checkFollowing(context, origin);
   await checkPinning(context, origin);
   await checkPanel(context, worker, extensionId, origin);
+  await checkChat(context, worker, extensionId);
   await checkHistory(context, extensionId);
   await checkDictionaryPack(context, extensionId, origin);
 

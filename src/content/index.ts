@@ -13,8 +13,8 @@ import { ext } from '../platform/browser.ts';
 import { CardView } from './card-view.ts';
 import { SelectionHandle } from './handle.ts';
 import { HoverLookup } from './hover.ts';
-import { contextForSelection, resetPageProfile } from './page-context.ts';
-import type { ToContent } from '../shared/messages.ts';
+import { contextForSelection, pageProfile, pageText, resetPageProfile } from './page-context.ts';
+import type { CollectedContext, ToContent } from '../shared/messages.ts';
 
 /**
  * How long after a selection a copy shortcut still cancels the card.
@@ -389,7 +389,17 @@ window.addEventListener(
   { passive: true, capture: true },
 );
 
-ext.runtime.onMessage.addListener((message: ToContent) => {
+/**
+ * A ceiling on what crosses the message channel, not the context budget.
+ *
+ * The budget belongs to the conversation and is applied by the worker, which
+ * is the only place that knows the setting. This exists so that a docs site
+ * serving its whole reference on one route cannot hand a megabyte of string
+ * to `sendMessage`.
+ */
+const MAX_TRANSFERRED_CHARS = 200_000;
+
+ext.runtime.onMessage.addListener((message: ToContent, _sender, sendResponse) => {
   switch (message.type) {
     case 'QL_CARD': {
       const incoming = message.card as Card;
@@ -411,6 +421,25 @@ ext.runtime.onMessage.addListener((message: ToContent) => {
     case 'QL_SETTINGS_CHANGED':
       settings = mergeSettings(message.settings);
       return;
+    case 'QL_COLLECT_CONTEXT': {
+      const profile = pageProfile();
+      const text = pageText();
+      const selection = window.getSelection()?.toString().trim() ?? '';
+      const reply: CollectedContext = {
+        attachment: {
+          url: profile.url ?? location.href,
+          host: profile.host ?? location.hostname,
+          title: profile.title || document.title || location.hostname,
+          ...(selection ? { selection } : {}),
+          excerpt: text.slice(0, MAX_TRANSFERRED_CHARS),
+          // The true length, measured before either cut. It is what tells
+          // the reader that what the model saw was not the whole page.
+          fullLength: text.length,
+        },
+      };
+      sendResponse(reply);
+      return;
+    }
     default:
       return;
   }

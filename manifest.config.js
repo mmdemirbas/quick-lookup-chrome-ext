@@ -33,6 +33,10 @@ export const DATA_HOSTS = [
   'https://developer.mozilla.org/*', // web platform reference, asked only on web pages
   'https://api.mymemory.translated.net/*', // translation, only when switched on in settings
   'https://translate.googleapis.com/*', // translation, only when switched on in settings
+  // The panel's conversation, and the only host that is sent page content
+  // rather than a word. Contacted only when a key is stored and only for a
+  // page the reader explicitly asked to discuss.
+  'https://api.anthropic.com/*',
 ];
 
 const BASE = {

@@ -12,7 +12,8 @@ import {
   type PackMeta,
   type PackPreview,
 } from '../platform/packs.ts';
-import type { StatusResponse } from '../shared/messages.ts';
+import type { KeyState, StatusResponse } from '../shared/messages.ts';
+import { MODELS } from '../core/chat.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -31,7 +32,17 @@ const fields = {
   onlineTranslation: $<HTMLInputElement>('onlineTranslation'),
   translationService: $<HTMLSelectElement>('translationService'),
   translationEmail: $<HTMLInputElement>('translationEmail'),
+  chatKey: $<HTMLInputElement>('chatKey'),
+  chatModel: $<HTMLSelectElement>('chatModel'),
+  chatContext: $<HTMLInputElement>('chatContext'),
 };
+
+for (const model of MODELS) {
+  const option = document.createElement('option');
+  option.value = model.id;
+  option.textContent = `${model.label} — $${model.inputPrice} in / $${model.outputPrice} out per million tokens`;
+  fields.chatModel.append(option);
+}
 
 let settings: Settings = DEFAULT_SETTINGS;
 
@@ -47,8 +58,48 @@ function fill(next: Settings): void {
   fields.onlineTranslation.checked = next.appearance.onlineTranslation;
   fields.translationService.value = next.appearance.translationService;
   fields.translationEmail.value = next.appearance.translationEmail;
+  fields.chatModel.value = next.chat.model;
+  fields.chatContext.value = String(next.chat.contextChars);
   syncOnlineFields();
   renderSites();
+}
+
+/**
+ * Says whether a key is stored, and never shows the key.
+ *
+ * The field stays empty even when one is set: a masked value in an editable
+ * box is a trap, because saving the form would write the mask back as the
+ * key. Typing replaces, and the button below removes.
+ */
+async function renderKeyState(): Promise<void> {
+  const label = $('chatKeyState');
+  const forget = $<HTMLButtonElement>('chatForget');
+  try {
+    const state = (await ext.runtime.sendMessage({ type: 'QL_CHAT_KEY_STATE' })) as
+      | KeyState
+      | undefined;
+    const present = Boolean(state?.present);
+    label.textContent = present
+      ? `A key is stored on this device: ${state?.masked}. It is not synced to your other browsers.`
+      : 'No key stored. The panel\u2019s Chat view cannot reach anything until one is added.';
+    forget.hidden = !present;
+    fields.chatKey.placeholder = present ? 'Type a new key to replace it' : 'sk-ant-\u2026';
+  } catch {
+    label.textContent = 'Could not read the key state.';
+  }
+}
+
+$<HTMLButtonElement>('chatForget').addEventListener('click', () => {
+  void ext.runtime.sendMessage({ type: 'QL_CHAT_SAVE_KEY', apiKey: '' }).then(renderKeyState);
+});
+
+/** Writes a newly typed key, if one was typed, and clears the box either way. */
+async function saveKeyIfTyped(): Promise<void> {
+  const typed = fields.chatKey.value.trim();
+  if (!typed) return;
+  fields.chatKey.value = '';
+  await ext.runtime.sendMessage({ type: 'QL_CHAT_SAVE_KEY', apiKey: typed });
+  await renderKeyState();
 }
 
 function collect(): Settings {
@@ -69,6 +120,11 @@ function collect(): Settings {
       onlineTranslation: fields.onlineTranslation.checked,
       translationService: fields.translationService.value as TranslationPreference,
       translationEmail: fields.translationEmail.value.trim(),
+    },
+    chat: {
+      ...settings.chat,
+      model: fields.chatModel.value,
+      contextChars: Number(fields.chatContext.value) || DEFAULT_SETTINGS.chat.contextChars,
     },
   });
 }
@@ -391,8 +447,11 @@ function flashSaved(): void {
 }
 
 $('save').addEventListener('click', () => {
-  void ext.runtime
-    .sendMessage({ type: 'QL_SAVE_SETTINGS', settings: collect() })
+  // The key is written separately because it is stored separately: settings
+  // go to `sync` and replicate to every signed-in browser, and a key must
+  // not travel that way.
+  void saveKeyIfTyped()
+    .then(() => ext.runtime.sendMessage({ type: 'QL_SAVE_SETTINGS', settings: collect() }))
     .then((stored) => {
       fill(mergeSettings(stored));
       flashSaved();
@@ -433,3 +492,5 @@ function syncOnlineFields(): void {
 fields.onlineTranslation.addEventListener('change', syncOnlineFields);
 fields.translationService.addEventListener('change', syncOnlineFields);
 syncOnlineFields();
+
+void renderKeyState();

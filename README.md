@@ -132,6 +132,38 @@ It mirrors rather than competes. Whatever was looked up last, in whichever
 tab, is what the panel shows; the only lookup it starts itself is the one
 you ask for from its list.
 
+The panel has a second view, **Chat**, which is the opposite kind of thing:
+the thread exists only there, and nothing else in the extension holds it.
+
+## Discussing a page
+
+A lookup answers "what does this mean". Everything else you might want from
+a page — is this claim true, what is this actually arguing, how would I
+reply — is a conversation.
+
+Right-click a page and choose **Discuss this page with Claude**. The panel
+opens on the Chat view with that page attached, and your question goes with
+it. Then keep browsing: the thread stays, and the next question carries
+whatever page you are on by then. That is the point of it — read a post,
+open the paper it cites, and ask whether the paper says what the post
+claimed.
+
+It needs an Anthropic API key, which is the one thing in this extension that
+does. Add it in settings; it is kept on this device and is not synced. Sonnet
+5 answers by default, and the picker under the composer changes the model for
+the conversation you are in.
+
+Two things the panel tells you that it would be easy not to. It says which
+page each question was asked against, and **when the page was longer than the
+budget it says how much was sent** — an answer about the first third of a
+page is a different thing from an answer about the page. The line under the
+composer shows roughly what the thread has cost, and how much of it was
+served from cache: asking five things about one page re-sends a prefix that
+has not changed, which is billed at about a tenth.
+
+Nothing is sent without that right-click, and nothing at all is sent while no
+key is stored.
+
 ## Comparing two words
 
 Drag a card by its header or its foot and it detaches: it keeps its answer,
@@ -174,11 +206,12 @@ into something worth coming back to.
 | `activeTab` | Reading the selection when triggered by the shortcut |
 | `sidePanel` | Opening the panel. Chromium only; Firefox's sidebar needs no permission |
 | `<all_urls>` content script | The selection handle must be able to appear on any page. The always-on script only listens for selection changes; everything else is loaded on first use |
-| Fourteen host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Tatoeba, Wikidata, Wikimedia images, Stack Exchange, npm, PyPI, crates.io, MDN, MyMemory and Google Translate. Each is listed with its reason in `manifest.config.js`. Stack Exchange, the registries and MDN are asked only for technical terms, the registries only on a page about that ecosystem, and the two translators only if you switch translation on |
+| Fifteen host permissions | Wikipedia, Wiktionary, freedictionaryapi.com, Datamuse, Tatoeba, Wikidata, Wikimedia images, Stack Exchange, npm, PyPI, crates.io, MDN, MyMemory, Google Translate and the Anthropic API. Each is listed with its reason in `manifest.config.js`. Stack Exchange, the registries and MDN are asked only for technical terms, the registries only on a page about that ecosystem, and the two translators only if you switch translation on. The Anthropic API is contacted only when a key is stored and only for a page you asked to discuss |
 
 ## Privacy
 
-- No account, no API key, no analytics, no remote code.
+- No analytics, no remote code. No account or key is needed for anything
+  except the panel's Chat view, and that one is off until you add a key.
 - Selected text is sent only to the data source being queried, and only
   when a lookup was asked for.
 - A copied card carries the URL of the page you were on, so the note can
@@ -190,6 +223,14 @@ into something worth coming back to.
   available and either can be chosen alone: Google's keyless endpoint,
   which has no allowance to exhaust, and MyMemory, which is documented
   but limited to 5,000 characters a day.
+- The Chat view sends the *page*, not a word, so it is treated as the
+  largest thing here: it needs a stored key **and** a right-click on that
+  specific page, and it never runs on its own. A page can hold a draft, a
+  message thread or an account number that no lookup would ever have
+  transmitted. The key lives in local storage, is never synced, is never put
+  in the settings object a content script can see, and the options page shows
+  a mask rather than the key. Extension storage is not encrypted, so this is
+  storage rather than secrecy — treat it as you would a `.env` file.
 - Ranking always runs on the device: it is arithmetic over the page's own
   words, not a model. Translation runs on the device too when the browser
   provides a translator, and is skipped when it does not.

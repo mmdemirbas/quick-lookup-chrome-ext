@@ -7,26 +7,50 @@
       :root {
         --bg: #ffffff; --surface: #f6f6f9; --text: #17171c;
         --soft: #5c5c6b; --faint: #8b8b99; --border: #e2e2ea; --accent: #4f46e5;
+        --warn: #a15c00;
       }
       @media (prefers-color-scheme: dark) {
         :root {
           --bg: #16161c; --surface: #1f1f28; --text: #ececf2;
           --soft: #a9a9ba; --faint: #7d7d8f; --border: #2e2e3a; --accent: #a5a0ff;
+          --warn: #e0a353;
         }
       }
       * { box-sizing: border-box; }
-      /* The panel owns the scroll, which is why the card inside it drops its
-         own height cap. Two scrollbars in one column is one too many. */
+      /* The panel owns the scroll for the lookup view, which is why the card
+         inside it drops its own height cap. Two scrollbars in one column is
+         one too many. The chat view scrolls its own log instead, so that the
+         composer stays put while the answer arrives. */
       body {
-        margin: 0; padding: 0 0 16px;
+        margin: 0; padding: 0;
         background: var(--bg); color: var(--text);
         font: 400 13.5px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        height: 100vh; display: flex; flex-direction: column;
       }
+
+      /* Which view is showing. One row, always in the same place, because it
+         is the only control that changes what the whole panel is for. */
+      .views {
+        display: flex; gap: 2px; padding: 8px 12px 0;
+        border-bottom: 1px solid var(--border); flex: 0 0 auto;
+      }
+      .views button {
+        flex: 1; background: none; border: 0; border-bottom: 2px solid transparent;
+        color: var(--soft); font: inherit; font-size: 12.5px; font-weight: 600;
+        padding: 6px 4px 7px; cursor: pointer;
+      }
+      .views button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+      .views button:hover { color: var(--text); }
+
+      .view { flex: 1 1 auto; min-height: 0; display: none; flex-direction: column; }
+      .view[data-active="true"] { display: flex; }
+
+      /* ---- Lookup ---- */
+      #lookup { overflow-y: auto; padding-bottom: 16px; }
       #card:empty { display: none; }
-      .empty-state {
-        padding: 22px 16px; color: var(--soft); font-size: 12.5px;
-      }
+      .empty-state { padding: 22px 16px; color: var(--soft); font-size: 12.5px; }
       .empty-state b { display: block; color: var(--text); font-size: 13.5px; margin-bottom: 4px; }
+      .empty-state a { color: var(--accent); }
       h2 {
         font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
         color: var(--faint); margin: 18px 0 6px; padding: 0 16px;
@@ -55,17 +79,142 @@
       }
       li .star.on { color: var(--accent); }
       .empty { color: var(--faint); font-size: 12.5px; padding: 4px 0; }
+
+      /* ---- Chat ---- */
+      #chatLog { flex: 1 1 auto; overflow-y: auto; padding: 12px 14px; }
+      .turn { margin: 0 0 14px; }
+      .turn .body p { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .turn .body p:last-child { margin-bottom: 0; }
+      /* The reader's own words sit in a tinted block; the answer runs full
+         width. Two speakers, one accent, no coloured bubbles fighting the
+         text they contain. */
+      .turn.user .body {
+        background: var(--surface); border-radius: 8px; padding: 8px 10px;
+        color: var(--text);
+      }
+      .turn.assistant .body { padding: 0 2px; }
+      .turn.failed .body { color: var(--warn); }
+      /* Said in the extension's voice, because the model did not say it and
+         an unattributed error reads as the answer to the question above. */
+      .turn .label {
+        display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em;
+        text-transform: uppercase; color: var(--warn); margin-bottom: 3px;
+      }
+      .turn .body.waiting { color: var(--faint); font-style: italic; }
+      .thinking { margin: 0 0 6px; }
+      .thinking summary {
+        cursor: pointer; color: var(--faint); font-size: 11.5px;
+        text-transform: uppercase; letter-spacing: .05em;
+      }
+      .thinking p {
+        margin: 6px 0 0; color: var(--soft); font-size: 12.5px;
+        border-left: 2px solid var(--border); padding-left: 9px; white-space: pre-wrap;
+      }
+
+      /* One row per page, fields in a fixed order, so a thread that spans
+         four pages is read by scanning a column rather than re-parsing. */
+      .attachment {
+        display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+        font-size: 11.5px; color: var(--faint); margin-bottom: 5px;
+        padding: 4px 7px; background: var(--surface);
+        border: 1px solid var(--border); border-radius: 6px;
+      }
+      .attachment .title {
+        font-weight: 600; color: var(--soft); max-width: 190px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .attachment .host { color: var(--faint); }
+      .attachment .selected {
+        flex-basis: 100%; color: var(--soft); font-style: italic;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .attachment .clipped { color: var(--warn); margin-left: auto; }
+      /* 24px square minimum: this is the only way to un-attach a page, and a
+         6px glyph is not something a pointer lands on first time. */
+      .attachment .drop {
+        background: none; border: 0; color: var(--faint); cursor: pointer;
+        font-size: 15px; line-height: 1; padding: 0;
+        min-width: 24px; min-height: 24px; border-radius: 5px;
+      }
+      .attachment .drop:hover { color: var(--text); background: var(--border); }
+
+      .composer {
+        flex: 0 0 auto; border-top: 1px solid var(--border);
+        padding: 8px 10px 10px; background: var(--bg);
+      }
+      #chatAttachment { margin-bottom: 6px; }
+      .composer textarea {
+        width: 100%; resize: none; min-height: 38px; max-height: 160px;
+        border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+        background: var(--bg); color: var(--text); font: inherit;
+      }
+      .composer textarea:focus { outline: none; border-color: var(--accent); }
+      .composer .row {
+        display: flex; align-items: center; gap: 8px; margin-top: 7px;
+      }
+      .composer select {
+        background: var(--bg); color: var(--soft); font: inherit; font-size: 11.5px;
+        border: 1px solid var(--border); border-radius: 6px; padding: 3px 5px;
+      }
+      #chatMeter {
+        flex: 1; color: var(--faint); font-size: 11px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      #chatClear {
+        background: none; border: 0; color: var(--faint); font: inherit;
+        font-size: 11.5px; cursor: pointer; padding: 0 2px;
+      }
+      #chatClear:hover { color: var(--text); }
+      #chatSend {
+        background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+        padding: 5px 14px; font: inherit; font-size: 12.5px; font-weight: 600;
+        cursor: pointer;
+      }
+      #chatSend.streaming { background: var(--surface); color: var(--soft); }
     </style>
   </head>
   <body>
-    <div id="card"></div>
-    <div class="empty-state" id="emptyState">
-      <b>Nothing here yet.</b>
-      Select text on any page. The answer appears here as well as on the page,
-      and stays when you move on.
-    </div>
-    <h2>Recent <button id="clearHistory" type="button">Clear</button></h2>
-    <ul id="history"><li class="empty">Nothing looked up yet.</li></ul>
+    <nav class="views" role="tablist">
+      <button id="tabLookup" type="button" role="tab" aria-selected="true">Lookup</button>
+      <button id="tabChat" type="button" role="tab" aria-selected="false">Chat</button>
+    </nav>
+
+    <section class="view" id="lookup" data-active="true" role="tabpanel">
+      <div id="card"></div>
+      <div class="empty-state" id="emptyState">
+        <b>Nothing here yet.</b>
+        Select text on any page. The answer appears here as well as on the page,
+        and stays when you move on.
+      </div>
+      <h2>Recent <button id="clearHistory" type="button">Clear</button></h2>
+      <ul id="history"><li class="empty">Nothing looked up yet.</li></ul>
+    </section>
+
+    <section class="view" id="chat" data-active="false" role="tabpanel">
+      <div id="chatLog">
+        <div class="empty-state" id="chatEmpty">
+          <b>Ask about what you are reading.</b>
+          Right-click any page and choose <b>Discuss this page with Claude</b>.
+          The page comes with your question, and the thread stays here while you
+          browse on.
+        </div>
+      </div>
+      <div class="composer">
+        <div id="chatAttachment" hidden></div>
+        <textarea
+          id="chatInput"
+          rows="1"
+          placeholder="Ask about this page…"
+          aria-label="Your question"
+        ></textarea>
+        <div class="row">
+          <select id="chatModel" aria-label="Model"></select>
+          <button id="chatClear" type="button" hidden>Clear thread</button>
+          <span id="chatMeter"></span>
+          <button id="chatSend" type="button">Ask</button>
+        </div>
+      </div>
+    </section>
     <script src="panel.js"></script>
   </body>
 </html>

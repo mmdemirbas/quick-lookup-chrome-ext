@@ -383,18 +383,107 @@ History keeps the most recent 300 lookups. Repeating a query moves its
 entry rather than adding one. A starred entry survives both the cap and
 Clear.
 
-## 12. Security and privacy
+## 12. Conversation
+
+A lookup answers "what does this mean". Everything else a reader wants from a
+page — is this claim true, what is this arguing, how would I reply — is a
+conversation, and lives in the panel's second view.
+
+### 12.1 Why the panel and not the card
+
+The card is the fast path and is bound to a selection on a page: it is torn
+down when that page goes. A conversation has to outlive navigation, because
+the interesting case spans pages — read a post, open the paper it cites, ask
+whether the paper says what the post claimed. The panel is browser chrome, so
+the page it was opened over has no say in whether it stays.
+
+### 12.2 The page travels with the turn
+
+The conversation belongs to the window; the page belongs to the question. Each
+user turn carries the page it was asked against — url, title, the selection if
+there was one, and the readable text within a budget. A thread that spans four
+pages is therefore honest about which question was asked about which.
+
+Page text comes from the same `pageText()` the lookup uses, so a definition
+found on the page and a question asked about the page see the same document.
+
+### 12.3 What is sent, and only then
+
+Nothing reaches the API unless two things are true: a key is stored, and the
+reader used the **Discuss this page with Claude** context-menu item. There is
+no ambient collection. The gesture is a context-menu click for the same reason
+the panel's own opening is: a button in the page reaches the extension as a
+message, which leaves the service worker calling `sidePanel.open()` with no
+user gesture behind it, and the browser refuses that (§5.3).
+
+The context budget is a setting, defaulting to 24,000 characters. When a page
+exceeds it the first part is sent and **the panel says so on the turn** — an
+answer about the first third of a page is a different thing from an answer
+about the page, and only that line distinguishes them.
+
+### 12.4 Where the thread lives
+
+In the panel document, not the service worker. The worker is torn down after
+about thirty seconds of inactivity and would have forgotten the thread between
+two questions, so the panel holds it and sends it whole each time. It is
+mirrored to `storage.session`, keyed by window, so closing and reopening the
+panel does not lose it and closing the browser does.
+
+### 12.5 The cache breakpoint
+
+Prompt caching matches a prefix, so the breakpoint goes on the **last**
+attached page. Follow-up questions about the same page then re-send a prefix
+that has not changed by a byte and are billed at about a tenth. That is the
+common shape — land on a page, ask five things — and without it each of those
+five re-sends the whole page at full price.
+
+### 12.6 Models
+
+Sonnet 5 by default, changeable per conversation; Opus 5 for questions that
+are actually hard, Haiku 4.5 for cheap ones. Adaptive thinking and the effort
+control are sent only to models that accept them — Haiku 4.5 answers a 400,
+not a slightly worse reply. Reasoning is requested as a summary so that a
+streaming panel has something to show instead of a still box.
+
+### 12.7 Backends
+
+The API key is the first of four and the only one built. The seam is
+`streamChat()` in `src/platform/anthropic.ts`: `src/core/chat.ts` builds the
+request and nothing above it knows how the request is sent.
+
+| Backend | State | Note |
+|---|---|---|
+| Anthropic API key | built | Works anywhere; metered; key in `storage.local`, never `sync` |
+| Local bridge to Claude Code | not built | Uses an existing subscription, no key in the browser, needs a daemon and only works on that machine |
+| Hand off to claude.ai | not built | An export action rather than a backend: build the prompt, open a tab. No cost, no key, but you leave the page |
+| Built-in browser AI | not built | Measured `unavailable` on every browser on this machine (§4.2). Re-measure before starting |
+
+## 13. Security and privacy
 
 - No remote code. No `eval`. No third-party HTML injected into the page.
 - Every value from a source is inserted as text, never as markup.
 - Only hosts listed in the manifest are contacted.
 - No analytics.
-- One setting, off by default, sends the selection to a translation service.
-  It is the only thing that sends the reader's text anywhere it was not
-  already going to answer a lookup, so it says so where it is switched on,
-  and the card names the service that answered.
+- Two things send the reader's text somewhere it was not already going to
+  answer a lookup. Both are off until switched on, and both say so where they
+  are switched on.
+  - A setting sends the *selection* to a translation service. The card names
+    the service that answered.
+  - The panel's conversation sends the *page* to the Anthropic API. This is
+    much the larger of the two — a page can hold a draft, a message thread or
+    an account number that no lookup would ever have transmitted — so it needs
+    a stored key **and** a per-page gesture, and it never runs by itself
+    (§12.3). The turn shows which page was sent and how much of it.
+- The API key is kept in `storage.local`, never `storage.sync`: settings
+  replicate to every browser the reader is signed into and a key must not
+  travel that way. It is never put in the `Settings` object, so it cannot
+  reach a content script, and the options page shows a mask rather than the
+  key. This is storage, not secrecy — extension storage is not encrypted.
+- Answers from the model are inserted as text, never as markup. A model
+  reading pages the reader did not write is not a source to hand markup
+  privileges to in the extension's own origin.
 
-## 13. Quality gates
+## 14. Quality gates
 
 All four must pass before any change is considered done:
 
@@ -408,7 +497,7 @@ npm run check        # all of the above
 Core logic is tested without a browser. Anything that needs a browser API
 lives in `platform` behind an interface that tests can substitute.
 
-## 14. Roadmap
+## 15. Roadmap
 
 | Phase | Content |
 |---|---|
@@ -416,5 +505,6 @@ lives in `platform` behind an interface that tests can substitute.
 | 2 | Intent router, entity and technical paths, page context |
 | 3 | Inference adapter — classification, translation, phrasing |
 | 4 | History, bookmarks, export, side panel for depth |
+| 4.5 | Conversation in the panel, Anthropic API backend (§12) |
 | 5 | Writing tools — summarise, rewrite, proofread |
 | 6 | PDF support, accessibility pass, Firefox target |

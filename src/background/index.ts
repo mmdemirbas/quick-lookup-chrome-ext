@@ -26,8 +26,17 @@ import {
 } from '../platform/ai.ts';
 import { translateOnline, UNKNOWN_LANGUAGE } from '../core/online-translate.ts';
 import { sameLanguage } from '../core/language.ts';
-import type { StatusResponse, ToBackground } from '../shared/messages.ts';
+import type {
+  CollectedContext,
+  KeyState,
+  StatusResponse,
+  ToBackground,
+  ToPanel,
+} from '../shared/messages.ts';
 import { openPanel } from '../shared/panel.ts';
+import { buildRequest, clipExcerpt, type Attachment, type Conversation } from '../core/chat.ts';
+import { ChatError, streamChat } from '../platform/anthropic.ts';
+import { maskApiKey, readApiKey, writeApiKey } from '../platform/secrets.ts';
 
 const VERSION = ext.runtime.getManifest().version;
 const http = createHttpClient(VERSION);
@@ -66,6 +75,24 @@ const persistent = new PersistentStore<Card>(localStore(), {
  */
 const PANEL = 'panel';
 const inFlight = new Map<number | typeof PANEL, AbortController>();
+
+/**
+ * The page the reader asked to discuss, waiting for the panel to collect it.
+ *
+ * Held here rather than pushed, because opening the panel and collecting the
+ * page happen in the same gesture and the panel is usually not listening yet
+ * when the page arrives. Broadcast as well, for when it already is.
+ */
+let pendingAttachment: Attachment | undefined;
+
+/** One answer at a time. Asking again abandons the one still arriving. */
+let chatController: AbortController | undefined;
+
+function toPanel(message: ToPanel): void {
+  ext.runtime.sendMessage(message).catch(() => {
+    // The panel was closed mid-answer. The abort below handles the stream.
+  });
+}
 
 async function loadSettings(): Promise<Settings> {
   const stored = await ext.storage.sync.get('settings');
@@ -179,6 +206,95 @@ async function addGloss(
   };
   if (!card.order.includes('translation')) card.order.push('translation');
   return true;
+}
+
+/**
+ * Streams one answer, reporting every fragment as it arrives.
+ *
+ * The conversation is sent whole by the panel rather than kept here: this
+ * worker is torn down after about thirty seconds of inactivity, so anything
+ * it remembered between two questions would be gone by the second one.
+ */
+async function handleChat(requestId: string, conversation: Conversation): Promise<void> {
+  chatController?.abort('superseded');
+  const controller = new AbortController();
+  chatController = controller;
+
+  try {
+    const apiKey = await readApiKey();
+    if (!apiKey) {
+      toPanel({
+        type: 'QL_CHAT_FAILED',
+        requestId,
+        message: 'No API key is set. Add one in the extension settings.',
+        retryable: false,
+      });
+      return;
+    }
+
+    await loadSettings();
+    const usage = await streamChat({
+      apiKey,
+      body: buildRequest(conversation, settings.chat.contextChars),
+      signal: controller.signal,
+      onDelta: (delta) =>
+        toPanel({ type: 'QL_CHAT_DELTA', requestId, kind: delta.kind, text: delta.text }),
+    });
+    toPanel({ type: 'QL_CHAT_DONE', requestId, usage });
+  } catch (error) {
+    // The reader pressed stop, or asked something else. Neither is a failure
+    // and neither has anything to say to them.
+    if (controller.signal.aborted) return;
+
+    // Which failure it was decides what the reader should do, so the classes
+    // stay apart all the way to the panel: a rejected key is worth fixing, a
+    // 529 is worth waiting out, and a dropped connection is worth retrying.
+    if (error instanceof ChatError) {
+      toPanel({
+        type: 'QL_CHAT_FAILED',
+        requestId,
+        message: error.message,
+        retryable: error.retryable,
+      });
+    } else {
+      const detail = error instanceof Error ? error.message : String(error);
+      toPanel({
+        type: 'QL_CHAT_FAILED',
+        requestId,
+        message: `Could not reach the API. ${detail}`,
+        retryable: true,
+      });
+    }
+  } finally {
+    if (chatController === controller) chatController = undefined;
+  }
+}
+
+/**
+ * Asks a tab for the page behind it and stages the result.
+ *
+ * Clipped here rather than in the content script, because the budget is a
+ * setting and the worker is the only side that has read it. The full length
+ * measured before the cut travels with it, so the panel can say what was
+ * left out instead of presenting a fragment as the page.
+ */
+async function stageAttachment(tabId: number): Promise<void> {
+  try {
+    const collected = (await ext.tabs.sendMessage(tabId, {
+      type: 'QL_COLLECT_CONTEXT',
+    })) as CollectedContext | undefined;
+    if (!collected?.attachment) return;
+
+    await loadSettings();
+    pendingAttachment = {
+      ...collected.attachment,
+      excerpt: clipExcerpt(collected.attachment.excerpt, settings.chat.contextChars),
+    };
+    toPanel({ type: 'QL_CHAT_ATTACH', attachment: pendingAttachment });
+  } catch {
+    // No content script here: a PDF viewer, the extension gallery, or another
+    // extension's page. The panel opens anyway and the reader can still type.
+  }
 }
 
 async function handleLookup(
@@ -328,6 +444,38 @@ ext.runtime.onMessage.addListener((message: ToBackground, sender, sendResponse) 
       memory.clear();
       return false;
 
+    case 'QL_CHAT_SEND':
+      void handleChat(message.requestId, message.conversation);
+      return false;
+
+    case 'QL_CHAT_CANCEL':
+      chatController?.abort('cancelled');
+      return false;
+
+    case 'QL_CHAT_TAKE_ATTACHMENT': {
+      // Taken, not read. A page left staged would attach itself to whatever
+      // the reader asked next, which may be about something else entirely.
+      sendResponse(pendingAttachment ?? null);
+      pendingAttachment = undefined;
+      return false;
+    }
+
+    case 'QL_CHAT_KEY_STATE':
+      void readApiKey().then((key) => {
+        const state: KeyState = { present: Boolean(key), masked: maskApiKey(key) };
+        sendResponse(state);
+      });
+      return true;
+
+    case 'QL_CHAT_SAVE_KEY':
+      void writeApiKey(message.apiKey)
+        .then(readApiKey)
+        .then((key) => {
+          const state: KeyState = { present: Boolean(key), masked: maskApiKey(key) };
+          sendResponse(state);
+        });
+      return true;
+
     case 'QL_CLEAR_HISTORY':
       void persistent.clearHistory().then(() => persistent.history().then(sendResponse));
       return true;
@@ -353,6 +501,14 @@ ext.runtime.onInstalled.addListener(() => {
     title: 'Open the Quick Lookup panel',
     contexts: ['all'],
   });
+  // The same gesture rule applies, which is why discussing a page is a
+  // context-menu item rather than a button on the card: the panel has to be
+  // opened by something the browser counts as a user action.
+  ext.contextMenus.create({
+    id: 'quick-lookup-discuss',
+    title: 'Discuss this page with Claude',
+    contexts: ['all'],
+  });
   // Expired entries are dropped on read, but a key never read again would
   // otherwise occupy storage forever.
   void persistent.prune();
@@ -365,6 +521,13 @@ ext.runtime.onStartup?.addListener(() => {
 ext.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'quick-lookup-panel') {
     openPanel(tab?.windowId);
+    return;
+  }
+  if (info.menuItemId === 'quick-lookup-discuss') {
+    // Opened first and without awaiting anything. The gesture is spent by the
+    // first `await`, and collecting the page needs a round trip to the tab.
+    openPanel(tab?.windowId);
+    if (tab?.id !== undefined) void stageAttachment(tab.id);
     return;
   }
   if (info.menuItemId !== 'quick-lookup' || tab?.id === undefined) return;
