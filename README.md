@@ -153,6 +153,24 @@ thing in this extension that needs one. Add it in settings; it is kept on this
 device and is not synced. Sonnet 5 answers by default, and the picker under the
 composer changes the model for the conversation you are in.
 
+**The local bridge** is the third way, and the one that spends no money. Run
+`node bridge/server.mjs` from this repository; it prints an address and a token
+to paste into settings, then switch "Answered by" to the local bridge. Answers
+then come from Claude Code on this machine, using the subscription already
+there, and no key is stored in the browser at all.
+
+It only works on the machine running it and only while it runs, and it is
+slower — about five seconds to the first word, against well under one for the
+API, because a session starts per question. In exchange nothing is metered.
+
+Claude Code runs there with every tool that reads, writes or reaches the
+network switched off, in an empty directory. That is the important part rather
+than a detail: a web page is text somebody else wrote, and an agent that can
+both read a page and act on the machine is a way for that page to act on the
+machine. Note that Claude Code's own `--restricted` mode is not sufficient for
+this — it stops commands running but still allows file writes — so the bridge
+names the tools it refuses rather than trusting the mode.
+
 **claude.ai↗** needs nothing at all. It composes the same question and page,
 puts them on your clipboard and opens a new conversation at claude.ai to paste
 into. No key, no cost, and it works before you have set anything up — what it
@@ -218,7 +236,8 @@ into something worth coming back to.
 ## Privacy
 
 - No analytics, no remote code. No account or key is needed for anything
-  except the panel's Chat view, and that one is off until you add a key.
+  except the panel's Chat view, and that one is off until you add a key — or
+  until you run the local bridge, which needs no key at all.
 - Selected text is sent only to the data source being queried, and only
   when a lookup was asked for.
 - A copied card carries the URL of the page you were on, so the note can
@@ -230,6 +249,10 @@ into something worth coming back to.
   available and either can be chosen alone: Google's keyless endpoint,
   which has no allowance to exhaust, and MyMemory, which is documented
   but limited to 5,000 characters a day.
+- The local bridge listens on 127.0.0.1 only, requires a bearer token, and
+  refuses any request whose `Origin` is a web page. Loopback is not
+  authentication: any page can send to a local port even when it cannot read
+  the reply, and sending is enough to spend your subscription.
 - The Chat view sends the *page*, not a word, so it is treated as the
   largest thing here: it needs a stored key **and** a right-click on that
   specific page, and it never runs on its own. A page can hold a draft, a

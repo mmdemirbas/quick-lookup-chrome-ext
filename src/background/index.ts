@@ -35,8 +35,14 @@ import type {
 } from '../shared/messages.ts';
 import { openPanel } from '../shared/panel.ts';
 import { buildRequest, clipExcerpt, type Attachment, type Conversation } from '../core/chat.ts';
-import { ChatError, streamChat } from '../platform/anthropic.ts';
-import { maskApiKey, readApiKey, writeApiKey } from '../platform/secrets.ts';
+import { apiTarget, bridgeTarget, ChatError, streamChat } from '../platform/anthropic.ts';
+import {
+  maskApiKey,
+  readApiKey,
+  readBridgeToken,
+  writeApiKey,
+  writeBridgeToken,
+} from '../platform/secrets.ts';
 
 const VERSION = ext.runtime.getManifest().version;
 const http = createHttpClient(VERSION);
@@ -209,6 +215,21 @@ async function addGloss(
 }
 
 /**
+ * Which backend answers, and what it needs to be let in.
+ *
+ * Returns nothing when the chosen one has no credential yet, which is a
+ * different thing from a rejected one and gets a different sentence.
+ */
+async function chosenTarget() {
+  if (settings.chat.backend === 'bridge') {
+    const token = await readBridgeToken();
+    return token ? bridgeTarget(settings.chat.bridgeUrl, token) : undefined;
+  }
+  const apiKey = await readApiKey();
+  return apiKey ? apiTarget(apiKey) : undefined;
+}
+
+/**
  * Streams one answer, reporting every fragment as it arrives.
  *
  * The conversation is sent whole by the panel rather than kept here: this
@@ -221,26 +242,29 @@ async function handleChat(requestId: string, conversation: Conversation): Promis
   chatController = controller;
 
   try {
-    const apiKey = await readApiKey();
-    if (!apiKey) {
+    await loadSettings();
+    const target = await chosenTarget();
+    if (!target) {
       toPanel({
         type: 'QL_CHAT_FAILED',
         requestId,
-        message: 'No API key is set. Add one in the extension settings.',
+        message:
+          settings.chat.backend === 'bridge'
+            ? 'No bridge token is set. Start the bridge and paste its token into the extension settings.'
+            : 'No API key is set. Add one in the extension settings.',
         retryable: false,
       });
       return;
     }
 
-    await loadSettings();
     const usage = await streamChat({
-      apiKey,
+      target,
       body: buildRequest(conversation, settings.chat.contextChars),
       signal: controller.signal,
       onDelta: (delta) =>
         toPanel({ type: 'QL_CHAT_DELTA', requestId, kind: delta.kind, text: delta.text }),
     });
-    toPanel({ type: 'QL_CHAT_DONE', requestId, usage });
+    toPanel({ type: 'QL_CHAT_DONE', requestId, usage, backend: settings.chat.backend });
   } catch (error) {
     // The reader pressed stop, or asked something else. Neither is a failure
     // and neither has anything to say to them.
@@ -258,12 +282,7 @@ async function handleChat(requestId: string, conversation: Conversation): Promis
       });
     } else {
       const detail = error instanceof Error ? error.message : String(error);
-      toPanel({
-        type: 'QL_CHAT_FAILED',
-        requestId,
-        message: `Could not reach the API. ${detail}`,
-        retryable: true,
-      });
+      toPanel({ type: 'QL_CHAT_FAILED', requestId, message: detail, retryable: true });
     }
   } finally {
     if (chatController === controller) chatController = undefined;
@@ -461,17 +480,30 @@ ext.runtime.onMessage.addListener((message: ToBackground, sender, sendResponse) 
     }
 
     case 'QL_CHAT_KEY_STATE':
-      void readApiKey().then((key) => {
-        const state: KeyState = { present: Boolean(key), masked: maskApiKey(key) };
+      void Promise.all([readApiKey(), readBridgeToken()]).then(([key, token]) => {
+        const state: KeyState = {
+          present: Boolean(key),
+          masked: maskApiKey(key),
+          bridgePresent: Boolean(token),
+          bridgeMasked: maskApiKey(token),
+        };
         sendResponse(state);
       });
       return true;
 
     case 'QL_CHAT_SAVE_KEY':
-      void writeApiKey(message.apiKey)
-        .then(readApiKey)
-        .then((key) => {
-          const state: KeyState = { present: Boolean(key), masked: maskApiKey(key) };
+      void (message.which === 'bridge'
+        ? writeBridgeToken(message.apiKey)
+        : writeApiKey(message.apiKey)
+      )
+        .then(() => Promise.all([readApiKey(), readBridgeToken()]))
+        .then(([key, token]) => {
+          const state: KeyState = {
+            present: Boolean(key),
+            masked: maskApiKey(key),
+            bridgePresent: Boolean(token),
+            bridgeMasked: maskApiKey(token),
+          };
           sendResponse(state);
         });
       return true;

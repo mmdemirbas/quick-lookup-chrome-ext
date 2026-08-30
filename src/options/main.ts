@@ -33,6 +33,9 @@ const fields = {
   translationService: $<HTMLSelectElement>('translationService'),
   translationEmail: $<HTMLInputElement>('translationEmail'),
   chatKey: $<HTMLInputElement>('chatKey'),
+  chatBackend: $<HTMLSelectElement>('chatBackend'),
+  chatBridgeUrl: $<HTMLInputElement>('chatBridgeUrl'),
+  chatBridgeToken: $<HTMLInputElement>('chatBridgeToken'),
   chatModel: $<HTMLSelectElement>('chatModel'),
   chatContext: $<HTMLInputElement>('chatContext'),
 };
@@ -58,8 +61,11 @@ function fill(next: Settings): void {
   fields.onlineTranslation.checked = next.appearance.onlineTranslation;
   fields.translationService.value = next.appearance.translationService;
   fields.translationEmail.value = next.appearance.translationEmail;
+  fields.chatBackend.value = next.chat.backend;
+  fields.chatBridgeUrl.value = next.chat.bridgeUrl;
   fields.chatModel.value = next.chat.model;
   fields.chatContext.value = String(next.chat.contextChars);
+  syncBackendFields();
   syncOnlineFields();
   renderSites();
 }
@@ -84,10 +90,59 @@ async function renderKeyState(): Promise<void> {
       : 'No key stored. The panel\u2019s Chat view cannot reach anything until one is added.';
     forget.hidden = !present;
     fields.chatKey.placeholder = present ? 'Type a new key to replace it' : 'sk-ant-\u2026';
+    fields.chatBridgeToken.placeholder = state?.bridgePresent
+      ? `Stored: ${state.bridgeMasked}. Type a new one to replace it`
+      : 'Paste the token the bridge printed';
   } catch {
     label.textContent = 'Could not read the key state.';
   }
 }
+
+/** Bridge rows mean nothing while the API is answering, so they are hidden. */
+function syncBackendFields(): void {
+  const bridge = fields.chatBackend.value === 'bridge';
+  for (const row of document.querySelectorAll<HTMLElement>('[data-backend="bridge"]')) {
+    row.hidden = !bridge;
+  }
+}
+fields.chatBackend.addEventListener('change', syncBackendFields);
+
+/**
+ * Asks the bridge whether it is there, before a question depends on it.
+ *
+ * `/health` needs the token like every other route, so a green answer here
+ * means both halves are right — running, and reachable with this token.
+ * Finding that out now is the difference between a settings page and a
+ * mystery in the panel later.
+ */
+$<HTMLButtonElement>('chatBridgeTest').addEventListener('click', () => {
+  const state = $('chatBridgeState');
+  const url = fields.chatBridgeUrl.value.trim() || DEFAULT_SETTINGS.chat.bridgeUrl;
+  const typed = fields.chatBridgeToken.value.trim();
+  state.textContent = 'Checking\u2026';
+
+  void saveKeyIfTyped()
+    .then(() => (typed ? typed : ext.runtime.sendMessage({ type: 'QL_CHAT_KEY_STATE' })))
+    .then(async () => {
+      const response = await fetch(`${url.replace(/\/+$/, '')}/health`, {
+        headers: typed ? { authorization: `Bearer ${typed}` } : {},
+      });
+      if (response.status === 401) {
+        state.textContent = 'Reached it, but the token was refused.';
+        return;
+      }
+      if (!response.ok) {
+        state.textContent = `Reached it, but it answered HTTP ${response.status}.`;
+        return;
+      }
+      state.textContent = 'The bridge answered. Claude Code is behind it.';
+    })
+    .catch((error: unknown) => {
+      state.textContent = `Nothing is listening at ${url}. Start it with node bridge/server.mjs. (${
+        error instanceof Error ? error.message : String(error)
+      })`;
+    });
+});
 
 $<HTMLButtonElement>('chatForget').addEventListener('click', () => {
   void ext.runtime.sendMessage({ type: 'QL_CHAT_SAVE_KEY', apiKey: '' }).then(renderKeyState);
@@ -95,11 +150,21 @@ $<HTMLButtonElement>('chatForget').addEventListener('click', () => {
 
 /** Writes a newly typed key, if one was typed, and clears the box either way. */
 async function saveKeyIfTyped(): Promise<void> {
-  const typed = fields.chatKey.value.trim();
-  if (!typed) return;
-  fields.chatKey.value = '';
-  await ext.runtime.sendMessage({ type: 'QL_CHAT_SAVE_KEY', apiKey: typed });
-  await renderKeyState();
+  const key = fields.chatKey.value.trim();
+  const bridge = fields.chatBridgeToken.value.trim();
+  if (key) {
+    fields.chatKey.value = '';
+    await ext.runtime.sendMessage({ type: 'QL_CHAT_SAVE_KEY', apiKey: key, which: 'api' });
+  }
+  if (bridge) {
+    fields.chatBridgeToken.value = '';
+    await ext.runtime.sendMessage({
+      type: 'QL_CHAT_SAVE_KEY',
+      apiKey: bridge,
+      which: 'bridge',
+    });
+  }
+  if (key || bridge) await renderKeyState();
 }
 
 function collect(): Settings {
@@ -123,6 +188,8 @@ function collect(): Settings {
     },
     chat: {
       ...settings.chat,
+      backend: fields.chatBackend.value as Settings['chat']['backend'],
+      bridgeUrl: fields.chatBridgeUrl.value.trim() || DEFAULT_SETTINGS.chat.bridgeUrl,
       model: fields.chatModel.value,
       contextChars: Number(fields.chatContext.value) || DEFAULT_SETTINGS.chat.contextChars,
     },

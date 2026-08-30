@@ -3,7 +3,7 @@ import type { Card, PageContext } from '../core/types.ts';
 import type { Settings } from '../core/settings.ts';
 import type { HistoryItem } from '../core/store.ts';
 import type { Capabilities } from '../platform/ai.ts';
-import type { Attachment, Conversation } from '../core/chat.ts';
+import type { Attachment, ChatBackend, Conversation } from '../core/chat.ts';
 import type { ChatUsage } from '../platform/anthropic.ts';
 
 export type LookupMessage = {
@@ -56,7 +56,12 @@ export type ChatCancelMessage = { type: 'QL_CHAT_CANCEL' };
 export type ChatTakeAttachmentMessage = { type: 'QL_CHAT_TAKE_ATTACHMENT' };
 /** Whether a key is stored, and enough of it to recognise. Never the key. */
 export type ChatKeyStateMessage = { type: 'QL_CHAT_KEY_STATE' };
-export type ChatSaveKeyMessage = { type: 'QL_CHAT_SAVE_KEY'; apiKey: string };
+export type ChatSaveKeyMessage = {
+  type: 'QL_CHAT_SAVE_KEY';
+  apiKey: string;
+  /** Which secret this is. Absent means the API key, which came first. */
+  which?: 'api' | 'bridge';
+};
 
 export type ToBackground =
   | LookupMessage
@@ -114,6 +119,12 @@ export type ChatDoneMessage = {
   type: 'QL_CHAT_DONE';
   requestId: string;
   usage: ChatUsage;
+  /**
+   * Which backend answered. The panel needs it to say what the turn cost:
+   * the API bills dollars and the bridge spends subscription quota, and
+   * printing a dollar figure for the second is a made-up number.
+   */
+  backend: ChatBackend;
 };
 /**
  * The turn did not finish. `message` is the API's own wording where there
@@ -139,7 +150,12 @@ export type ToPanel =
 export type CollectedContext = { attachment: Attachment };
 
 /** What the options page and the panel learn about the stored key. */
-export type KeyState = { present: boolean; masked: string };
+export type KeyState = {
+  present: boolean;
+  masked: string;
+  bridgePresent: boolean;
+  bridgeMasked: string;
+};
 
 export type StatusResponse = {
   capabilities: Capabilities;

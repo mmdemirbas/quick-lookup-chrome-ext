@@ -21,6 +21,15 @@
 export type ChatRole = 'user' | 'assistant';
 
 /**
+ * Which process answers.
+ *
+ * Both speak the same wire format — a Messages body in, Anthropic-shaped SSE
+ * out — so this picks a URL and a header, not a code path. That is the whole
+ * reason the local bridge was cheap to add.
+ */
+export type ChatBackend = 'api' | 'bridge';
+
+/**
  * The page a question was asked against.
  *
  * Attached to the turn, never to the conversation. Two questions about two

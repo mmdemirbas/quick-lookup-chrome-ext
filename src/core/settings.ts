@@ -6,7 +6,7 @@
  * and nothing requires a key or an account.
  */
 import type { TranslationPreference } from './online-translate.ts';
-import { DEFAULT_CONTEXT_CHARS, DEFAULT_MODEL } from './chat.ts';
+import { DEFAULT_CONTEXT_CHARS, DEFAULT_MODEL, type ChatBackend } from './chat.ts';
 
 /** How a selection turns into a card on a given site. */
 export type TriggerMode =
@@ -66,6 +66,16 @@ export type Settings = {
   };
   chat: {
     /**
+     * Which of the two answering backends the panel uses.
+     *
+     * `api` is metered and works anywhere. `bridge` talks to a local process
+     * that drives Claude Code, so it spends a subscription instead of a key
+     * and only works on the machine running it.
+     */
+    backend: ChatBackend;
+    /** Where the local bridge listens. Loopback; anything else is a mistake. */
+    bridgeUrl: string;
+    /**
      * Which model a new conversation starts on. The panel changes it per
      * conversation, so this is the starting point rather than the rule.
      */
@@ -103,6 +113,8 @@ export const DEFAULT_SETTINGS: Settings = {
     maxSelectionChars: 300,
   },
   chat: {
+    backend: 'api',
+    bridgeUrl: 'http://127.0.0.1:8787',
     model: DEFAULT_MODEL,
     contextChars: DEFAULT_CONTEXT_CHARS,
   },

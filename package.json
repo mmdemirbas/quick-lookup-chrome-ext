@@ -8,7 +8,7 @@
     "build": "node build.mjs",
     "dev": "node build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node --test 'src/**/*.test.ts'",
+    "test": "node --test 'src/**/*.test.ts' 'bridge/**/*.test.mjs'",
     "check": "npm run typecheck && npm test && npm run build",
     "smoke": "node tools/live-check.ts",
     "sweep": "node tools/relevance-sweep.ts",

@@ -229,6 +229,13 @@
           at all is sent while no key is stored.
         </p>
         <div class="row">
+          <label for="chatBackend">Answered by</label>
+          <select id="chatBackend">
+            <option value="api">Anthropic API — works anywhere, metered, needs a key</option>
+            <option value="bridge">Local bridge — uses Claude Code on this machine</option>
+          </select>
+        </div>
+        <div class="row">
           <label for="chatKey">API key</label>
           <input id="chatKey" type="password" autocomplete="off" spellcheck="false"
                  placeholder="sk-ant-…" />
@@ -236,6 +243,25 @@
         <div class="row"><span id="chatKeyState" class="hint"></span>
           <button id="chatForget" class="secondary" type="button" hidden>Forget key</button>
         </div>
+        <div class="row" data-backend="bridge">
+          <label for="chatBridgeUrl">Bridge address</label>
+          <input id="chatBridgeUrl" type="text" spellcheck="false"
+                 placeholder="http://127.0.0.1:8787" />
+        </div>
+        <div class="row" data-backend="bridge">
+          <label for="chatBridgeToken">Bridge token</label>
+          <input id="chatBridgeToken" type="password" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="row" data-backend="bridge">
+          <span id="chatBridgeState" class="hint"></span>
+          <button id="chatBridgeTest" class="secondary" type="button">Test</button>
+        </div>
+        <p class="hint" data-backend="bridge">
+          Start it with <code>node bridge/server.mjs</code> from this repository. It
+          prints the address and token to paste above. Answers then come from Claude
+          Code with tools switched off, so nothing it is told by a web page can run
+          anything on this machine.
+        </p>
         <div class="row">
           <label for="chatModel">Model for new conversations</label>
           <select id="chatModel"></select>

@@ -19,6 +19,7 @@ import {
   wasClipped,
   type Attachment,
   type ChatTurn,
+  type ChatBackend,
   type Conversation,
 } from '../core/chat.ts';
 import type { ChatUsage } from '../platform/anthropic.ts';
@@ -59,6 +60,8 @@ export class ChatView {
   private staged: Attachment | undefined;
   /** The turn currently being streamed into, and the request that owns it. */
   private streaming: { requestId: string; turn: ChatTurn } | undefined;
+  /** Which backend last answered, because it decides what the meter can say. */
+  private backend: ChatBackend = 'api';
 
   constructor(
     private readonly elements: Elements,
@@ -187,8 +190,9 @@ export class ChatView {
     this.draw();
   }
 
-  done(requestId: string, usage: ChatUsage): void {
+  done(requestId: string, usage: ChatUsage, backend: ChatBackend = 'api'): void {
     if (this.streaming?.requestId !== requestId) return;
+    this.backend = backend;
     this.usage = {
       inputTokens: this.usage.inputTokens + usage.inputTokens,
       outputTokens: this.usage.outputTokens + usage.outputTokens,
@@ -301,6 +305,13 @@ export class ChatView {
     const spent = this.usage.inputTokens + this.usage.outputTokens + this.usage.cacheReadTokens;
     if (!spent) {
       this.elements.meter.textContent = '';
+      return;
+    }
+    // The bridge spends a subscription, not dollars. Pricing its answers at
+    // the API's rates would be inventing a number that nobody is billed.
+    if (this.backend === 'bridge') {
+      this.elements.meter.textContent =
+        `${modelChoice(this.conversation.model).label} \u00b7 via Claude Code on this machine`;
       return;
     }
     const cost = estimateCost(this.conversation.model, this.usage);

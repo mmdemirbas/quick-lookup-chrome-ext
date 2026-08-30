@@ -323,7 +323,7 @@ ext.runtime.onMessage.addListener((message: ToContent | ToPanel) => {
         outputTokens: savedUsage.outputTokens + message.usage.outputTokens,
         cacheReadTokens: savedUsage.cacheReadTokens + message.usage.cacheReadTokens,
       };
-      chat?.done(message.requestId, message.usage);
+      chat?.done(message.requestId, message.usage, message.backend);
       return;
     case 'QL_CHAT_FAILED':
       chat?.failed(message.requestId, message.message, message.retryable);

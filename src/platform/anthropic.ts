@@ -20,6 +20,53 @@ const ENDPOINT = 'https://api.anthropic.com/v1/messages';
 /** The dated contract version, sent on every request. */
 const API_VERSION = '2023-06-01';
 
+/**
+ * Where a request goes and what it carries to be let in.
+ *
+ * Two backends, one wire format: the local bridge answers with the same
+ * Anthropic-shaped SSE, so switching between them is a different URL and a
+ * different header and nothing else. Everything below this line is shared.
+ *
+ * `credential` and `unreachable` exist so failures stay specific. "The API
+ * key was rejected" and "the bridge is not running" are the two things a
+ * reader can actually act on, and a single "request failed" hides both.
+ */
+export type ChatTarget = {
+  url: string;
+  headers: Record<string, string>;
+  /** What a 401 was rejecting, in the words the reader would use. */
+  credential: string;
+  /** What to say when the connection never happened at all. */
+  unreachable: string;
+};
+
+export function apiTarget(apiKey: string): ChatTarget {
+  return {
+    url: ENDPOINT,
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': API_VERSION,
+      // The API refuses browser-origin requests by default, because a key in
+      // a web page is a key the world has. An extension service worker is not
+      // a web page, but it carries an origin, so the acknowledgement is
+      // required. The key never reaches a content script.
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    credential: 'The API key',
+    unreachable: 'Could not reach api.anthropic.com.',
+  };
+}
+
+export function bridgeTarget(baseUrl: string, token: string): ChatTarget {
+  const base = baseUrl.trim().replace(/\/+$/, '');
+  return {
+    url: `${base}/v1/messages`,
+    headers: { authorization: `Bearer ${token}` },
+    credential: 'The bridge token',
+    unreachable: `Could not reach the bridge at ${base}. Start it with \`node bridge/server.mjs\`.`,
+  };
+}
+
 export type ChatDelta =
   | { kind: 'thinking'; text: string }
   | { kind: 'text'; text: string };
@@ -51,7 +98,7 @@ export class ChatError extends Error {
 }
 
 /** Turns an error body into something a reader can act on. */
-function describe(status: number, body: string): ChatError {
+function describe(status: number, body: string, credential: string): ChatError {
   let detail = body.slice(0, 300);
   try {
     const parsed = JSON.parse(body) as { error?: { message?: string } };
@@ -64,7 +111,7 @@ function describe(status: number, body: string): ChatError {
   switch (status) {
     case 401:
     case 403:
-      return new ChatError(status, `The API key was rejected. ${detail}`, false);
+      return new ChatError(status, `${credential} was rejected. ${detail}`, false);
     case 429:
       return new ChatError(status, `Rate limited. ${detail}`, true);
     case 400:
@@ -136,29 +183,35 @@ async function* events(body: ReadableStream<Uint8Array>): AsyncGenerator<StreamE
  * worth showing and the other is not.
  */
 export async function streamChat(options: {
-  apiKey: string;
+  target: ChatTarget;
   body: RequestBody;
   signal: AbortSignal;
   onDelta: (delta: ChatDelta) => void;
 }): Promise<ChatUsage> {
-  const response = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': options.apiKey,
-      'anthropic-version': API_VERSION,
-      // The API refuses browser-origin requests by default, because a key in
-      // a web page is a key the world has. An extension service worker is not
-      // a web page, but it carries an origin, so the acknowledgement is
-      // required. The key never reaches a content script.
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(options.body),
-    signal: options.signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(options.target.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...options.target.headers },
+      body: JSON.stringify(options.body),
+      signal: options.signal,
+    });
+  } catch (error) {
+    // Aborts are the caller's business and must not be dressed as failures.
+    if (options.signal.aborted) throw error;
+    // A `fetch` that throws never reached anything, so there is no status and
+    // no body to read. For the bridge this is the everyday case — the process
+    // is not running — and saying so beats a TypeError.
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new ChatError(0, `${options.target.unreachable} (${detail})`, true);
+  }
 
   if (!response.ok || !response.body) {
-    throw describe(response.status, await response.text().catch(() => ''));
+    throw describe(
+      response.status,
+      await response.text().catch(() => ''),
+      options.target.credential,
+    );
   }
 
   const usage: ChatUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };

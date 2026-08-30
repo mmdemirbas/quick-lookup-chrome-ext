@@ -15,6 +15,7 @@
 import { ext } from './browser.ts';
 
 const KEY = 'chat.apiKey';
+const BRIDGE = 'chat.bridgeToken';
 
 export async function readApiKey(): Promise<string> {
   try {
@@ -33,6 +34,30 @@ export async function writeApiKey(value: string): Promise<void> {
     return;
   }
   await ext.storage.local.set({ [KEY]: trimmed });
+}
+
+/**
+ * The bridge's shared secret. Local rather than synced for the same reason
+ * the key is: it authorises spending, and it is machine-specific besides —
+ * the bridge on this laptop has nothing to do with any other browser.
+ */
+export async function readBridgeToken(): Promise<string> {
+  try {
+    const stored = await ext.storage.local.get(BRIDGE);
+    const value = stored[BRIDGE];
+    return typeof value === 'string' ? value : '';
+  } catch {
+    return '';
+  }
+}
+
+export async function writeBridgeToken(value: string): Promise<void> {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    await ext.storage.local.remove(BRIDGE);
+    return;
+  }
+  await ext.storage.local.set({ [BRIDGE]: trimmed });
 }
 
 /**

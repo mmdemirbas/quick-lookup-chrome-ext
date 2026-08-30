@@ -447,7 +447,7 @@ streaming panel has something to show instead of a still box.
 
 ### 12.7 Backends
 
-Two of four are built. The seam is `streamChat()` in
+Three of four are built. The seam is `streamChat()` in
 `src/platform/anthropic.ts`: `src/core/chat.ts` builds the request and nothing
 above it knows how the request is sent.
 
@@ -455,7 +455,7 @@ above it knows how the request is sent.
 |---|---|---|
 | Anthropic API key | built | Works anywhere; metered; key in `storage.local`, never `sync` |
 | Hand off to claude.ai | built | Not a backend but an export action, so it sits beside `Ask` rather than behind the seam. No cost, no key; you leave the page to talk |
-| Local bridge to Claude Code | not built | Uses an existing subscription, no key in the browser, needs a daemon and only works on that machine |
+| Local bridge to Claude Code | built | `bridge/server.mjs`. Spends a subscription rather than a key, and puts no key in the browser at all; only works on the machine running it, only while it runs (§12.9) |
 | Built-in browser AI | not built | Measured `unavailable` on every browser on this machine (§4.2). Re-measure before starting |
 
 ### 12.8 The keyless path
@@ -476,6 +476,55 @@ Because it needs no key, the empty state names it. A panel that says "an API
 key is needed" while one of its two buttons works without one is lying by
 omission.
 
+### 12.9 The local bridge
+
+`bridge/server.mjs` is a zero-dependency Node process that answers from Claude
+Code instead of the API. It speaks **the same wire format** — a Messages body
+in, Anthropic-shaped SSE out — so `streamChat()` parses both and choosing a
+backend is a URL and a header, not a code path. That is what the seam was for.
+
+**Why `--restricted` is not enough on its own.** The prompt contains a web
+page the reader did not write, so the input is attacker-controlled by
+construction. `--restricted` removes Bash, PowerShell and the REPL, and the
+name suggests that is the end of it — but reading the tool list out of the
+session's own `init` event shows **26 tools remaining, including `Edit`,
+`Write` and `NotebookEdit`**. A page that can talk an agent into writing a
+file has a foothold. The bridge therefore also passes `--disallowed-tools`
+for every write, read and network tool, which takes the session to 18 with
+none of them left.
+
+`WebSearch` is refused even though it would genuinely help with "is this claim
+true". A page that can steer a search can put the page's own contents in the
+query, which turns a reading tool into an exfiltration channel. Re-admitting
+it needs a way to stop the page choosing the query, and there isn't one yet.
+
+**Why an empty working directory.** Claude Code reads `CLAUDE.md` and the
+settings around its cwd. Measured on this machine: a trivial question asked
+from a project directory cost **25,012** cache-creation tokens; the same
+question from an empty directory with `--restricted --strict-mcp-config
+--settings '{}'` cost **10,926**. None of the difference has anything to do
+with the page being discussed.
+
+**Why a token, on loopback.** Any page in the browser can `fetch` a localhost
+port. It cannot read the reply, but it can send the request, and that alone
+spends the subscription this exists to use. A source address is not a peer
+identity. The bridge requires a bearer token *and* an `Origin` beginning
+`chrome-extension://`.
+
+**Why the bridge answers CORS instead of the extension taking a host
+permission.** `http://127.0.0.1/*` in `host_permissions` would have granted
+the extension every other service on the machine to solve this one problem.
+Instead the bridge echoes `Access-Control-Allow-Origin` for extension origins.
+The preflight is answered **before** the token check, because a preflight is
+sent by the browser and carries no `Authorization` — authenticating it would
+refuse every request before the real one was made.
+
+**What it costs.** About five seconds to the first token against well under
+one for the API, because a CLI session starts per question. The bridge is
+stateless like the API path: it re-sends the conversation rather than resuming
+a session, so the session preamble is paid on every turn. Resuming would fix
+that and is not built.
+
 ## 13. Security and privacy
 
 - No remote code. No `eval`. No third-party HTML injected into the page.
@@ -492,6 +541,9 @@ omission.
     an account number that no lookup would ever have transmitted — so it needs
     a stored key **and** a per-page gesture, and it never runs by itself
     (§12.3). The turn shows which page was sent and how much of it.
+- The bridge token is kept beside the key, under the same rule, and for the
+  extra reason that it is machine-specific: the bridge on this laptop has
+  nothing to do with any other browser.
 - The API key is kept in `storage.local`, never `storage.sync`: settings
   replicate to every browser the reader is signed into and a key must not
   travel that way. It is never put in the `Settings` object, so it cannot
