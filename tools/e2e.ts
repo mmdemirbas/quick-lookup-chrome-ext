@@ -517,6 +517,8 @@ async function checkChat(context: BrowserContext, worker: Worker, id: string): P
   const before = context.pages().length;
   await panel.fill('#chatInput', '');
   await panel.click('#chatHandoff');
+  // A fixed wait is right here and only here: the assertion is that nothing
+  // happens, and there is no event to poll for the absence of.
   await panel.waitForTimeout(300);
   record(
     'handing off an empty question does nothing',
@@ -526,12 +528,23 @@ async function checkChat(context: BrowserContext, worker: Worker, id: string): P
 
   await panel.fill('#chatInput', 'Is that plausible?');
   await panel.click('#chatHandoff');
-  await panel.waitForTimeout(600);
-  const opened = context.pages().find((p) => p.url().startsWith('https://claude.ai/'));
+
+  // Polled to a deadline rather than slept at. Opening a tab and having its
+  // URL settle is the browser's work on its own schedule, and a fixed wait
+  // that is usually long enough is a suite that usually passes.
+  const claudeTab = async () => {
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const found = context.pages().find((page) => page.url().startsWith('https://claude.ai/'));
+      if (found || Date.now() > deadline) return found;
+      await panel.waitForTimeout(100);
+    }
+  };
+  const opened = await claudeTab();
   record(
     'handing off a real question opens claude.ai',
     Boolean(opened),
-    opened?.url() ?? `no claude.ai tab among ${context.pages().length}`,
+    opened?.url() ?? `no claude.ai tab among ${context.pages().length} after 10s`,
   );
   await opened?.close();
 
