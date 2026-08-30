@@ -116,9 +116,28 @@ can only be turned on with a launch switch, which on macOS means
 `open -a "Brave Browser" --args --enable-features=TranslationAPI` and
 applies only to launches started that way. Chrome needs nothing.
 
+**Re-measured 2026-08-30, same method, Chrome for Testing 151:**
+
+| API | No flags | Every AI switch |
+|---|---|---|
+| LanguageModel | unavailable | unavailable |
+| Summarizer | unavailable | unavailable |
+| LanguageDetector | unavailable | unavailable |
+| Rewriter, Writer | absent | unavailable |
+| Proofreader | absent | absent |
+
+Unchanged in eighteen days: the interfaces exist, and no on-device model is
+reachable behind them. Note the scope — this is Chrome for Testing, which
+§8 of the handoff notes cannot reach the component updater at all, and real
+Chrome and Brave refuse `--load-extension` so they cannot be probed the same
+way. So this re-measurement confirms the automated arm and says nothing new
+about the reader's own browsers.
+
 Two things follow. Translation is the capability worth building for — it is
 what the reader asked for, and it is obtainable. Free-form generation is not
-reachable on any browser measured here, so nothing may depend on it.
+reachable on any browser measured here, so nothing may depend on it, and the
+conversation in §12 goes to a network backend rather than an on-device one
+for exactly this reason.
 
 A `downloadable` pair needs an explicit request: browsers gate a language
 pack behind a user gesture and will wait forever to be asked. That is why
@@ -456,7 +475,7 @@ above it knows how the request is sent.
 | Anthropic API key | built | Works anywhere; metered; key in `storage.local`, never `sync` |
 | Hand off to claude.ai | built | Not a backend but an export action, so it sits beside `Ask` rather than behind the seam. No cost, no key; you leave the page to talk |
 | Local bridge to Claude Code | built | `bridge/server.mjs`. Spends a subscription rather than a key, and puts no key in the browser at all; only works on the machine running it, only while it runs (§12.9) |
-| Built-in browser AI | not built | Measured `unavailable` on every browser on this machine (§4.2). Re-measure before starting |
+| Built-in browser AI | not built | `unavailable` on every browser measured, re-confirmed 2026-08-30 (§4.2). Not startable: there is nothing to build against and nothing to verify against |
 
 ### 12.8 The keyless path
 
