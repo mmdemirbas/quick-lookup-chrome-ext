@@ -166,7 +166,7 @@ export type RequestBody = {
  * look exactly like instructions and the model has to be able to tell the
  * reader's question from the page's prose.
  */
-function attachmentBlock(attachment: Attachment): string {
+export function attachmentBlock(attachment: Attachment): string {
   const clipped = wasClipped(attachment);
   const head = [
     `<page url="${attachment.url}" title="${attachment.title.replace(/"/g, "'")}"`,
@@ -255,3 +255,35 @@ export function estimateCost(
   const output = (usage.outputTokens * choice.outputPrice) / 1_000_000;
   return input + cached + output;
 }
+
+/**
+ * The same question and page, as one block of text to paste somewhere else.
+ *
+ * This is the second way to reach a model and the one that needs no key: the
+ * panel composes the prompt, puts it on the clipboard and opens claude.ai.
+ * You leave the page to talk, which is the whole cost of it, and in exchange
+ * it works on a machine with no key, no daemon and no billing.
+ *
+ * Deliberately the *same* rendering the API path sends. One format means the
+ * clipped notice travels here too — an answer about the first third of a page
+ * has to say so wherever it is asked for — and it means there is one thing to
+ * maintain rather than two that drift.
+ */
+export function handoffPrompt(question: string, attachment?: Attachment): string {
+  if (!attachment) return question;
+  // Not re-clipped. The attachment reaching the panel has already been cut to
+  // the reader's budget by the worker, which is the only side that read the
+  // setting; clipping again against this file's default would quietly undo a
+  // budget the reader raised.
+  return `${attachmentBlock(attachment)}\n\n${question}`;
+}
+
+/**
+ * Where a handed-off prompt is pasted.
+ *
+ * A new conversation rather than a prefilled one. Prefilling by query string
+ * is not used: a page excerpt is tens of thousands of characters and would
+ * exceed what a URL can carry long before the budget does, so the clipboard
+ * is the only route that works for the case this exists to serve.
+ */
+export const HANDOFF_URL = 'https://claude.ai/new';

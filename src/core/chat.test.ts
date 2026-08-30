@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildRequest,
+  handoffPrompt,
+  DEFAULT_CONTEXT_CHARS,
   clipExcerpt,
   estimateCost,
   modelChoice,
@@ -169,4 +171,30 @@ test('cached input is billed at a tenth of fresh input', () => {
   });
   assert.equal(fresh, 2);
   assert.ok(Math.abs(cached - 0.2) < 1e-9);
+});
+
+test('a handoff with no page is just the question', () => {
+  assert.equal(handoffPrompt('What is a manifest?'), 'What is a manifest?');
+});
+
+test('a handoff puts the page first and the question last', () => {
+  const prompt = handoffPrompt('Is that plausible?', attachment());
+  assert.match(prompt, /^<page url="https:\/\/example\.com\/post"/);
+  assert.ok(prompt.endsWith('Is that plausible?'));
+});
+
+test('a clipped page still says so when handed off, not only when sent', () => {
+  const prompt = handoffPrompt(
+    'Summarise',
+    attachment({ excerpt: 'x'.repeat(1000), fullLength: 5000 }),
+  );
+  assert.match(prompt, /clipped to the first 1000 of 5000 characters/);
+});
+
+test('a handoff does not re-clip a budget the reader raised', () => {
+  // The worker already cut this to the reader's setting, which is larger than
+  // this file's default. Clipping again here would silently undo it.
+  const excerpt = 'y'.repeat(DEFAULT_CONTEXT_CHARS + 5_000);
+  const prompt = handoffPrompt('Summarise', attachment({ excerpt, fullLength: excerpt.length }));
+  assert.ok(prompt.includes(excerpt), 'the whole excerpt survives');
 });

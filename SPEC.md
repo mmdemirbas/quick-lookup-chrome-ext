@@ -447,16 +447,34 @@ streaming panel has something to show instead of a still box.
 
 ### 12.7 Backends
 
-The API key is the first of four and the only one built. The seam is
-`streamChat()` in `src/platform/anthropic.ts`: `src/core/chat.ts` builds the
-request and nothing above it knows how the request is sent.
+Two of four are built. The seam is `streamChat()` in
+`src/platform/anthropic.ts`: `src/core/chat.ts` builds the request and nothing
+above it knows how the request is sent.
 
 | Backend | State | Note |
 |---|---|---|
 | Anthropic API key | built | Works anywhere; metered; key in `storage.local`, never `sync` |
+| Hand off to claude.ai | built | Not a backend but an export action, so it sits beside `Ask` rather than behind the seam. No cost, no key; you leave the page to talk |
 | Local bridge to Claude Code | not built | Uses an existing subscription, no key in the browser, needs a daemon and only works on that machine |
-| Hand off to claude.ai | not built | An export action rather than a backend: build the prompt, open a tab. No cost, no key, but you leave the page |
 | Built-in browser AI | not built | Measured `unavailable` on every browser on this machine (§4.2). Re-measure before starting |
+
+### 12.8 The keyless path
+
+`handoffPrompt()` composes the question and the page into one block, the panel
+puts it on the clipboard, and a tab opens on `claude.ai/new` to paste into.
+
+It renders **the same block** the API path sends, which is the point: the
+clipped notice travels with it, so a half-page is declared a half-page
+wherever the question is asked. Two formats would have drifted.
+
+The clipboard rather than a query-string prefill. A page excerpt runs to tens
+of thousands of characters and would exceed what a URL can carry long before
+the context budget does — a prefill would work on short pages and fail
+silently on exactly the long ones this exists for.
+
+Because it needs no key, the empty state names it. A panel that says "an API
+key is needed" while one of its two buttons works without one is lying by
+omission.
 
 ## 13. Security and privacy
 

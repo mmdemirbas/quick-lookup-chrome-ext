@@ -148,10 +148,15 @@ whatever page you are on by then. That is the point of it — read a post,
 open the paper it cites, and ask whether the paper says what the post
 claimed.
 
-It needs an Anthropic API key, which is the one thing in this extension that
-does. Add it in settings; it is kept on this device and is not synced. Sonnet
-5 answers by default, and the picker under the composer changes the model for
-the conversation you are in.
+**Ask** answers in the panel and needs an Anthropic API key, which is the one
+thing in this extension that needs one. Add it in settings; it is kept on this
+device and is not synced. Sonnet 5 answers by default, and the picker under the
+composer changes the model for the conversation you are in.
+
+**claude.ai↗** needs nothing at all. It composes the same question and page,
+puts them on your clipboard and opens a new conversation at claude.ai to paste
+into. No key, no cost, and it works before you have set anything up — what it
+costs instead is that you leave the page to talk.
 
 Two things the panel tells you that it would be easy not to. It says which
 page each question was asked against, and **when the page was longer than the
@@ -161,8 +166,10 @@ composer shows roughly what the thread has cost, and how much of it was
 served from cache: asking five things about one page re-sends a prefix that
 has not changed, which is billed at about a tenth.
 
-Nothing is sent without that right-click, and nothing at all is sent while no
-key is stored.
+Nothing is sent from the panel without that right-click, and nothing at all is
+sent while no key is stored. The clipboard path sends nothing anywhere by
+itself — it hands you the text and opens a tab; what happens next is a paste
+you make.
 
 ## Comparing two words
 

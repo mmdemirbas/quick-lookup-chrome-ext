@@ -13,6 +13,7 @@
  */
 import {
   MODELS,
+  handoffPrompt,
   estimateCost,
   modelChoice,
   wasClipped,
@@ -25,6 +26,8 @@ import type { ChatUsage } from '../platform/anthropic.ts';
 export type ChatCallbacks = {
   onSend: (conversation: Conversation, requestId: string) => void;
   onCancel: () => void;
+  /** Take this question and page somewhere with no key and no bill. */
+  onHandoff: (prompt: string) => void;
   /** Called whenever the thread changes, so it can be written to storage. */
   onChanged: (conversation: Conversation) => void;
 };
@@ -43,6 +46,7 @@ type Elements = {
   attachment: HTMLElement;
   meter: HTMLElement;
   clear: HTMLButtonElement;
+  handoff: HTMLButtonElement;
 };
 
 /** Running totals for the thread, so the cost line is not per-turn noise. */
@@ -115,6 +119,15 @@ export class ChatView {
       const input = this.elements.input;
       input.style.height = 'auto';
       input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+    });
+
+    // The same question and page, composed and handed to claude.ai instead.
+    // Useful with no key at all, and useful with one when a question wants
+    // the full app rather than a column 380 pixels wide.
+    this.elements.handoff.addEventListener('click', () => {
+      const text = this.elements.input.value.trim();
+      if (!text) return;
+      this.callbacks.onHandoff(handoffPrompt(text, this.staged));
     });
 
     this.elements.clear.addEventListener('click', () => {

@@ -473,8 +473,8 @@ async function checkChat(context: BrowserContext, worker: Worker, id: string): P
   await panel.waitForTimeout(300);
   const noKey = (await panel.locator('#chatEmpty').innerText()) ?? '';
   record(
-    'with no key stored it says so before anything is typed',
-    /API key is needed/i.test(noKey),
+    'with no key stored it says so, and names the path that needs no key',
+    /API key is needed/i.test(noKey) && /claude\.ai/i.test(noKey),
     noKey.split('\n')[0] ?? '',
   );
 
@@ -508,6 +508,32 @@ async function checkChat(context: BrowserContext, worker: Worker, id: string): P
     /33% sent/.test(chip),
     chip.includes('sent') ? (chip.match(/first \d+% sent/)?.[0] ?? '') : 'no clipping notice',
   );
+
+  // The keyless path. Composing the prompt is unit-tested; what is checked
+  // here is the wiring — that an empty question is refused rather than
+  // opening a tab, and that a real one does open claude.ai. The tab will not
+  // load in an offline run, which does not matter: the URL is what is being
+  // asserted.
+  const before = context.pages().length;
+  await panel.fill('#chatInput', '');
+  await panel.click('#chatHandoff');
+  await panel.waitForTimeout(300);
+  record(
+    'handing off an empty question does nothing',
+    context.pages().length === before,
+    `${context.pages().length} page(s), unchanged`,
+  );
+
+  await panel.fill('#chatInput', 'Is that plausible?');
+  await panel.click('#chatHandoff');
+  await panel.waitForTimeout(600);
+  const opened = context.pages().find((p) => p.url().startsWith('https://claude.ai/'));
+  record(
+    'handing off a real question opens claude.ai',
+    Boolean(opened),
+    opened?.url() ?? `no claude.ai tab among ${context.pages().length}`,
+  );
+  await opened?.close();
 
   // Dropping the page must leave the question intact: asking the same thing
   // without the page is a normal thing to want, not a reason to start over.

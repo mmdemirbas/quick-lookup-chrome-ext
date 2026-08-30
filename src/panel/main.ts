@@ -20,7 +20,7 @@
 import { CardView } from '../content/card-view.ts';
 import { renderHistory } from '../shared/history-list.ts';
 import { ext } from '../platform/browser.ts';
-import { DEFAULT_MODEL, type Conversation } from '../core/chat.ts';
+import { DEFAULT_MODEL, HANDOFF_URL, type Conversation } from '../core/chat.ts';
 import { ChatView } from './chat-view.ts';
 import type { ChatUsage } from '../platform/anthropic.ts';
 import type { HistoryItem } from '../core/store.ts';
@@ -135,6 +135,7 @@ const chatElements = {
   attachment: document.getElementById('chatAttachment'),
   meter: document.getElementById('chatMeter'),
   clear: document.getElementById('chatClear') as HTMLButtonElement | null,
+  handoff: document.getElementById('chatHandoff') as HTMLButtonElement | null,
 };
 
 let chat: ChatView | undefined;
@@ -147,7 +148,8 @@ if (
   chatElements.model &&
   chatElements.attachment &&
   chatElements.meter &&
-  chatElements.clear
+  chatElements.clear &&
+  chatElements.handoff
 ) {
   chat = new ChatView(
     {
@@ -159,6 +161,7 @@ if (
       attachment: chatElements.attachment,
       meter: chatElements.meter,
       clear: chatElements.clear,
+      handoff: chatElements.handoff,
     },
     {
       onSend: (conversation, requestId) => {
@@ -168,6 +171,7 @@ if (
         void ext.runtime.sendMessage({ type: 'QL_CHAT_CANCEL' });
       },
       onChanged: (conversation) => void saveThread(conversation),
+      onHandoff: (prompt) => void handoff(prompt),
     },
     { model: DEFAULT_MODEL, turns: [] },
   );
@@ -231,9 +235,10 @@ async function checkKey(): Promise<void> {
 
     chatElements.empty.replaceChildren();
     const heading = document.createElement('b');
-    heading.textContent = 'An API key is needed first.';
+    heading.textContent = 'An API key is needed to answer here.';
     const body = document.createElement('span');
-    body.textContent = 'Add an Anthropic API key in the extension settings, then come back. ';
+    body.textContent =
+      'Add an Anthropic API key in the extension settings and Ask will work. ';
     const link = document.createElement('a');
     link.href = '#';
     link.textContent = 'Open settings';
@@ -241,9 +246,49 @@ async function checkKey(): Promise<void> {
       event.preventDefault();
       ext.runtime.openOptionsPage();
     });
-    chatElements.empty.append(heading, body, link);
+    // Without this the panel would be telling the reader it can do nothing
+    // while one of its two buttons works perfectly well.
+    const keyless = document.createElement('span');
+    keyless.textContent =
+      ' Or skip the key entirely: type a question and press claude.ai\u2197, which copies it' +
+      ' with the page and opens a new conversation there for you to paste into.';
+    chatElements.empty.append(heading, body, link, keyless);
   } catch {
     // The worker did not answer. The ordinary empty state stands.
+  }
+}
+
+/**
+ * The second way to reach a model: clipboard, then claude.ai.
+ *
+ * The prompt goes on the clipboard rather than into the URL. A page excerpt
+ * runs to tens of thousands of characters and would exceed what a URL can
+ * carry long before the context budget does, so a query-string prefill would
+ * work for the short cases and fail silently on exactly the long ones this
+ * exists to serve.
+ *
+ * Costs nothing, needs no key, and is the only path here that works before
+ * one is added. What it costs instead is that you leave the page to talk.
+ */
+async function handoff(prompt: string): Promise<void> {
+  const button = chatElements.handoff;
+  try {
+    await navigator.clipboard.writeText(prompt);
+    if (button) {
+      // Said, not assumed. Nothing else on screen would tell the reader that
+      // a paste is now the next step rather than a second press.
+      button.textContent = 'Copied — paste it';
+      setTimeout(() => (button.textContent = 'claude.ai\u2197'), 2600);
+    }
+    await ext.tabs.create({ url: HANDOFF_URL });
+  } catch (error) {
+    // Refused because the document was not focused, or the tab was blocked.
+    // Saying which is the difference between retrying and giving up.
+    if (button) {
+      button.textContent = 'Copy failed';
+      setTimeout(() => (button.textContent = 'claude.ai\u2197'), 2600);
+    }
+    console.warn('handoff failed', error);
   }
 }
 
