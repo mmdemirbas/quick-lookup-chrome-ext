@@ -6,6 +6,7 @@
  * and nothing requires a key or an account.
  */
 import type { TranslationPreference } from './online-translate.ts';
+import { DEFAULT_CONTEXT_CHARS, DEFAULT_MODEL } from './chat.ts';
 
 /** How a selection turns into a card on a given site. */
 export type TriggerMode =
@@ -63,6 +64,18 @@ export type Settings = {
     cacheTtlHours: number;
     maxSelectionChars: number;
   };
+  chat: {
+    /**
+     * Which model a new conversation starts on. The panel changes it per
+     * conversation, so this is the starting point rather than the rule.
+     */
+    model: string;
+    /**
+     * Characters of page text sent with a question. Lower is cheaper and
+     * blinder; the panel shows when a page was clipped by it.
+     */
+    contextChars: number;
+  };
   /** Per-site overrides, keyed by host. */
   sites: Record<string, { mode?: TriggerMode }>;
 };
@@ -89,6 +102,10 @@ export const DEFAULT_SETTINGS: Settings = {
     cacheTtlHours: 168,
     maxSelectionChars: 300,
   },
+  chat: {
+    model: DEFAULT_MODEL,
+    contextChars: DEFAULT_CONTEXT_CHARS,
+  },
   sites: {},
 };
 
@@ -107,7 +124,7 @@ export function mergeSettings(stored: unknown): Settings {
   if (!isRecord(stored)) return structuredClone(DEFAULT_SETTINGS);
   const out = structuredClone(DEFAULT_SETTINGS);
 
-  for (const key of ['trigger', 'appearance', 'limits'] as const) {
+  for (const key of ['trigger', 'appearance', 'limits', 'chat'] as const) {
     const group = stored[key];
     if (!isRecord(group)) continue;
     for (const [field, value] of Object.entries(group)) {
