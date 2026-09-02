@@ -138,7 +138,18 @@ function childArgs(model, system) {
   ];
 }
 
+/**
+ * One SSE frame, or nothing if the client has gone.
+ *
+ * The guard is not defensive noise. Two paths end the response while the
+ * child is still producing: the reader closing the panel, and the `result`
+ * event arriving with more buffered lines behind it in the same chunk. A
+ * write after either one raises `ERR_STREAM_WRITE_AFTER_END` on a stream
+ * nobody is listening to, which takes the whole daemon down with it — and
+ * the daemon is shared by every tab.
+ */
 function sse(response, event, data) {
+  if (response.writableEnded || response.destroyed) return;
   response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
