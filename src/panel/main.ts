@@ -20,7 +20,13 @@
 import { CardView } from '../content/card-view.ts';
 import { renderHistory } from '../shared/history-list.ts';
 import { ext } from '../platform/browser.ts';
-import { DEFAULT_MODEL, HANDOFF_URL, newConversation, type Conversation } from '../core/chat.ts';
+import {
+  DEFAULT_MODEL,
+  HANDOFF_URL,
+  newConversation,
+  reviveConversation,
+  type Conversation,
+} from '../core/chat.ts';
 import { ChatView } from './chat-view.ts';
 import type { HistoryItem } from '../core/store.ts';
 import type { Attachment } from '../core/chat.ts';
@@ -90,16 +96,33 @@ const panes = {
   chat: document.getElementById('chat'),
 };
 
-function show(which: 'lookup' | 'chat'): void {
+function show(which: 'lookup' | 'chat', focus = false): void {
   for (const name of ['lookup', 'chat'] as const) {
     const active = name === which;
     panes[name]?.setAttribute('data-active', String(active));
     tabs[name]?.setAttribute('aria-selected', String(active));
+    // Roving tabindex: one stop for the whole tablist, as the pattern wants.
+    // Two stops would make a keyboard user tab through the switch before
+    // reaching anything it switches to.
+    tabs[name]?.setAttribute('tabindex', active ? '0' : '-1');
   }
+  if (focus) tabs[which]?.focus();
 }
 
 tabs.lookup?.addEventListener('click', () => show('lookup'));
 tabs.chat?.addEventListener('click', () => show('chat'));
+
+// Arrows move between tabs, which is the half of the pattern that a native
+// button does not give you for free once the tabindex is roving.
+for (const [name, tab] of Object.entries(tabs)) {
+  tab?.addEventListener('keydown', (event) => {
+    const key = (event as KeyboardEvent).key;
+    if (key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'Home' && key !== 'End') return;
+    event.preventDefault();
+    const other = name === 'lookup' ? 'chat' : 'lookup';
+    show(key === 'Home' ? 'lookup' : key === 'End' ? 'chat' : other, true);
+  });
+}
 
 // ---------------------------------------------------------------- chat
 
@@ -142,6 +165,7 @@ const chatElements = {
   meter: document.getElementById('chatMeter'),
   clear: document.getElementById('chatClear') as HTMLButtonElement | null,
   handoff: document.getElementById('chatHandoff') as HTMLButtonElement | null,
+  status: document.getElementById('chatStatus'),
 };
 
 let chat: ChatView | undefined;
@@ -155,7 +179,8 @@ if (
   chatElements.attachment &&
   chatElements.meter &&
   chatElements.clear &&
-  chatElements.handoff
+  chatElements.handoff &&
+  chatElements.status
 ) {
   chat = new ChatView(
     {
@@ -168,6 +193,7 @@ if (
       meter: chatElements.meter,
       clear: chatElements.clear,
       handoff: chatElements.handoff,
+      status: chatElements.status,
     },
     {
       onSend: (conversation, requestId) => {
@@ -196,16 +222,22 @@ async function saveThread(conversation: Conversation): Promise<void> {
 
 async function loadThread(): Promise<void> {
   if (!chat) return;
+  // Read and revive are separate, and the catch covers only the read.
+  //
+  // They used to share one `try`, so a conversation this build could not
+  // parse — one saved before spend moved inside it, say — threw on the way
+  // in and was caught by the handler meant for storage being unavailable.
+  // The thread was silently replaced with an empty one and nothing said so.
+  let stored: Record<string, unknown> = {};
   try {
-    const key = await threadKey();
-    const stored = await ext.storage.session.get(key);
-    const saved = stored[key] as SavedThread | undefined;
-    if (saved?.conversation?.turns) {
-      chat.restore(saved.conversation);
-      return;
-    }
+    stored = await ext.storage.session.get(await threadKey());
   } catch {
-    // Nothing saved, or storage refused. An empty thread is the right start.
+    // Session storage refused. An empty thread is the right start.
+  }
+  const saved = reviveConversation((Object.values(stored)[0] as SavedThread | undefined)?.conversation);
+  if (saved) {
+    chat.restore(saved);
+    return;
   }
 
   // No saved thread: start on whichever model the settings name.
@@ -320,7 +352,7 @@ ext.runtime.onMessage.addListener((message: ToContent | ToPanel) => {
       chat?.delta(message.requestId, message.kind, message.text);
       return;
     case 'QL_CHAT_DONE':
-      chat?.done(message.requestId, message.usage, message.backend);
+      chat?.done(message.requestId, message.usage, message.backend, message.complete);
       return;
     case 'QL_CHAT_FAILED':
       chat?.failed(message.requestId, message.message, message.retryable);

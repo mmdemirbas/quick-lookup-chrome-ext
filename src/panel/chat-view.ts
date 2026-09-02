@@ -49,6 +49,15 @@ type Elements = {
   meter: HTMLElement;
   clear: HTMLButtonElement;
   handoff: HTMLButtonElement;
+  /**
+   * Where state changes are announced to a screen reader.
+   *
+   * A live region on the log itself would re-announce the whole answer on
+   * every token, which is worse than silence. What a listener needs is the
+   * transitions — it started, it finished, it was cut off — and then the
+   * ability to go and read it.
+   */
+  status: HTMLElement;
 };
 
 export class ChatView {
@@ -57,6 +66,16 @@ export class ChatView {
   private staged: Attachment | undefined;
   /** The turn currently being streamed into, and the request that owns it. */
   private streaming: { requestId: string; turn: ChatTurn } | undefined;
+  /**
+   * The element the streaming turn is drawn into.
+   *
+   * Held so a delta can replace one turn instead of the whole thread.
+   * Rebuilding everything per token measured 103ms for 300 deltas into an
+   * empty thread and 450ms into a sixty-turn one — the cost of a token
+   * scaled with how long the conversation already was, which is the wrong
+   * way round for something that only ever appends to the end.
+   */
+  private streamingElement: HTMLElement | undefined;
 
   constructor(
     private readonly elements: Elements,
@@ -199,11 +218,28 @@ export class ChatView {
     const turn = this.streaming.turn;
     if (kind === 'thinking') turn.thinking = (turn.thinking ?? '') + text;
     else turn.text += text;
-    this.draw();
+
+    // Only the turn being written to. Everything above it is unchanged, and
+    // redrawing it was the whole of the cost.
+    const current = this.streamingElement;
+    if (!current) {
+      this.draw();
+      return;
+    }
+    const fresh = this.turnElement(turn);
+    current.replaceWith(fresh);
+    this.streamingElement = fresh;
+    this.elements.log.scrollTop = this.elements.log.scrollHeight;
   }
 
-  done(requestId: string, usage: ChatUsage, backend: ChatBackend = 'api'): void {
+  done(
+    requestId: string,
+    usage: ChatUsage,
+    backend: ChatBackend = 'api',
+    complete = true,
+  ): void {
     if (this.streaming?.requestId !== requestId) return;
+    if (!complete) this.streaming.turn.truncated = true;
     const running = this.conversation.usage;
     this.conversation.backend = backend;
     this.conversation.usage = {
@@ -228,6 +264,7 @@ export class ChatView {
 
   private finish(): void {
     this.streaming = undefined;
+    this.streamingElement = undefined;
     this.callbacks.onChanged(this.conversation);
     this.draw();
   }
@@ -237,11 +274,15 @@ export class ChatView {
     log.replaceChildren();
 
     if (this.conversation.turns.length === 0) log.append(this.elements.empty);
+    this.streamingElement = undefined;
     for (const turn of this.conversation.turns) {
-      log.append(this.turnElement(turn));
+      const element = this.turnElement(turn);
+      if (this.streaming?.turn === turn) this.streamingElement = element;
+      log.append(element);
     }
 
     this.elements.send.textContent = this.streaming ? 'Stop' : 'Ask';
+    this.announce();
     this.elements.send.classList.toggle('streaming', Boolean(this.streaming));
     this.elements.clear.hidden = this.conversation.turns.length === 0;
     this.drawStaged();
@@ -254,7 +295,10 @@ export class ChatView {
 
   private turnElement(turn: ChatTurn): HTMLElement {
     const element = document.createElement('article');
-    element.className = `turn ${turn.role}${turn.failed ? ' failed' : ''}`;
+    element.className = `turn ${turn.role}${turn.failed || turn.truncated ? ' failed' : ''}`;
+    // Without this a listener hears two runs of prose with nothing saying
+    // which of them was the question.
+    element.setAttribute('aria-label', turn.role === 'user' ? 'Your question' : 'Answer');
 
     if (turn.attachment) element.append(attachmentChip(turn.attachment));
 
@@ -271,6 +315,13 @@ export class ChatView {
 
     const body = document.createElement('div');
     body.className = 'body';
+    if (turn.truncated) {
+      const label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = 'Cut off';
+      label.title = 'The stream ended before the answer did. What is here is a fragment.';
+      body.append(label);
+    }
     if (turn.failed) {
       const label = document.createElement('span');
       label.className = 'label';
@@ -313,6 +364,22 @@ export class ChatView {
     });
     chip.append(drop);
     holder.append(chip);
+  }
+
+  /** One short sentence per state change, for anyone not watching the box. */
+  private announce(): void {
+    const last = this.conversation.turns.at(-1);
+    if (this.streaming) {
+      this.elements.status.textContent = 'Answering.';
+    } else if (last?.failed) {
+      this.elements.status.textContent = `Not answered. ${last.text}`;
+    } else if (last?.truncated) {
+      this.elements.status.textContent = 'The answer was cut off before it finished.';
+    } else if (last?.role === 'assistant' && last.text) {
+      this.elements.status.textContent = 'Answer finished.';
+    } else {
+      this.elements.status.textContent = '';
+    }
   }
 
   private drawMeter(): void {

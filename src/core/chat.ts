@@ -73,6 +73,15 @@ export type ChatTurn = {
    * went wrong, in the API's own words rather than ours.
    */
   failed?: boolean;
+  /**
+   * The stream stopped without saying it was done, so `text` is a fragment.
+   *
+   * Distinct from `failed`, which carries our words instead of the model's.
+   * A truncated turn holds real output and is worth keeping and replaying —
+   * it just must not be read as a finished answer, which is exactly what it
+   * looked like before this existed.
+   */
+  truncated?: boolean;
 };
 
 /**
@@ -166,6 +175,21 @@ export function modelChoice(id: string): ModelChoice {
  * on one route will happily hand over a megabyte.
  */
 export const DEFAULT_CONTEXT_CHARS = 24_000;
+
+/**
+ * How many pages keep their full text in the request.
+ *
+ * Every page ever attached used to be re-sent on every later turn, so a
+ * thread that wandered across ten pages carried all ten forever — measured
+ * at roughly 67,000 tokens per request by the tenth question, growing
+ * linearly and with nothing to stop it.
+ *
+ * Three, because the case this feature exists for needs two: read a post,
+ * open the paper it cites, ask whether the paper supports the post. Older
+ * pages are not dropped from the conversation — they keep their title and
+ * URL, so "the paper you showed me earlier" still refers to something.
+ */
+export const PAGES_KEPT_IN_FULL = 3;
 
 /**
  * Clips page text to the budget, keeping the beginning.
@@ -264,6 +288,21 @@ export function attachmentBlock(attachment: Attachment): string {
 }
 
 /**
+ * A page that has aged out of the budget: named, but no longer quoted.
+ *
+ * Said out loud rather than silently omitted. A model that is not told the
+ * text is gone will answer about it from whatever it can still infer, and
+ * that answer is indistinguishable from one grounded in the page.
+ */
+function referenceBlock(attachment: Attachment): string {
+  return (
+    `<page url="${attribute(attachment.url)}" title="${attribute(attachment.title)}" text-dropped="true">\n` +
+    `[Discussed earlier in this conversation. Its text is no longer included — ` +
+    `say so rather than guessing if a question depends on it.]\n</page>`
+  );
+}
+
+/**
  * Builds the request for a conversation whose last turn is the new question.
  *
  * Where the cache breakpoint goes is the only interesting decision here.
@@ -285,10 +324,12 @@ export function buildRequest(conversation: Conversation, contextChars?: number):
   // said it would have it apologising for an outage it knows nothing about.
   const spoken = conversation.turns.filter((turn) => !turn.failed && turn.text.trim());
 
-  const lastAttachment = spoken.reduce(
-    (found, turn, index) => (turn.attachment ? index : found),
-    -1,
-  );
+  const withPages = spoken
+    .map((turn, index) => (turn.attachment ? index : -1))
+    .filter((index) => index !== -1);
+  const lastAttachment = withPages.at(-1) ?? -1;
+  // The newest few keep their text; everything older keeps only its name.
+  const keepInFull = new Set(withPages.slice(-PAGES_KEPT_IN_FULL));
 
   const messages: ApiMessage[] = spoken.map((turn, index) => {
     if (turn.role !== 'user' || !turn.attachment) {
@@ -296,10 +337,12 @@ export function buildRequest(conversation: Conversation, contextChars?: number):
     }
     const page: TextBlock = {
       type: 'text',
-      text: attachmentBlock({
-        ...turn.attachment,
-        excerpt: clipExcerpt(turn.attachment.excerpt, budget),
-      }),
+      text: keepInFull.has(index)
+        ? attachmentBlock({
+            ...turn.attachment,
+            excerpt: clipExcerpt(turn.attachment.excerpt, budget),
+          })
+        : referenceBlock(turn.attachment),
       ...(index === lastAttachment ? { cache_control: { type: 'ephemeral' as const } } : {}),
     };
     return { role: turn.role, content: [page, { type: 'text', text: turn.text }] };
@@ -368,3 +411,66 @@ export function handoffPrompt(question: string, attachment?: Attachment): string
  * is the only route that works for the case this exists to serve.
  */
 export const HANDOFF_URL = 'https://claude.ai/new';
+
+/**
+ * Rebuilds a conversation from whatever was in storage.
+ *
+ * `JSON.parse` returns `unknown`, and a thread written by an older build is
+ * exactly that: one saved before spend and backend moved inside the
+ * conversation has neither, and reading `usage.inputTokens` off it throws.
+ * That throw used to land in the catch meant for storage failures, so the
+ * thread was silently replaced with an empty one — the reader lost the
+ * conversation and nothing said so.
+ *
+ * Returns `undefined` for something that is not a conversation at all, and
+ * fills in what a newer field expects for something that merely predates it.
+ */
+export function reviveConversation(value: unknown): Conversation | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const raw = value as Record<string, unknown>;
+  if (!Array.isArray(raw.turns)) return undefined;
+
+  const turns: ChatTurn[] = [];
+  for (const entry of raw.turns) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const turn = entry as Record<string, unknown>;
+    if (turn.role !== 'user' && turn.role !== 'assistant') continue;
+    if (typeof turn.text !== 'string') continue;
+    turns.push({
+      id: typeof turn.id === 'string' ? turn.id : `${turns.length}`,
+      role: turn.role,
+      text: turn.text,
+      ...(typeof turn.thinking === 'string' ? { thinking: turn.thinking } : {}),
+      ...(turn.failed === true ? { failed: true } : {}),
+      ...(turn.truncated === true ? { truncated: true } : {}),
+      ...(isAttachment(turn.attachment) ? { attachment: turn.attachment } : {}),
+    });
+  }
+
+  const usage = raw.usage as Partial<ChatUsage> | undefined;
+  const number = (n: unknown): number => (typeof n === 'number' && Number.isFinite(n) ? n : 0);
+
+  return {
+    model: typeof raw.model === 'string' ? raw.model : DEFAULT_MODEL,
+    turns,
+    usage: {
+      inputTokens: number(usage?.inputTokens),
+      outputTokens: number(usage?.outputTokens),
+      cacheReadTokens: number(usage?.cacheReadTokens),
+      cacheCreationTokens: number(usage?.cacheCreationTokens),
+    },
+    backend: raw.backend === 'bridge' ? 'bridge' : 'api',
+  };
+}
+
+function isAttachment(value: unknown): value is Attachment {
+  if (typeof value !== 'object' || value === null) return false;
+  const a = value as Record<string, unknown>;
+  return (
+    typeof a.url === 'string' &&
+    typeof a.host === 'string' &&
+    typeof a.title === 'string' &&
+    typeof a.excerpt === 'string' &&
+    typeof a.fullLength === 'number'
+  );
+}

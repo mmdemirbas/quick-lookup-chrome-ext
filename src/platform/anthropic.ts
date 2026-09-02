@@ -72,6 +72,22 @@ export type ChatDelta =
   | { kind: 'text'; text: string };
 
 /**
+ * What a finished turn cost, and whether it actually finished.
+ *
+ * `complete` is the honest half. A stream can stop without saying it is
+ * done — a dropped connection, a proxy closing early, a frame that will not
+ * parse — and the text collected up to that point is a fragment. Presented
+ * without this it reads as a whole answer that simply ended mid-sentence,
+ * which is the same defect as showing half a page as the page.
+ */
+export type ChatResult = {
+  usage: ChatUsage;
+  complete: boolean;
+  /** Frames that could not be parsed. Any at all means text is missing. */
+  droppedFrames: number;
+};
+
+/**
  * A failure with the API's own words kept.
  *
  * One generic "something went wrong" would have the reader retrying a bad key
@@ -98,8 +114,15 @@ function describe(status: number, body: string, credential: string): ChatError {
     const parsed = JSON.parse(body) as { error?: { message?: string } };
     if (parsed.error?.message) detail = parsed.error.message;
   } catch {
-    // Not JSON. An HTML error page from something in front of the API, most
-    // likely; the raw prefix is still more useful than a generic sentence.
+    // Not JSON — an error page from something sitting in front of the API.
+    // Its markup is noise in a 380-pixel column, so it is reduced to its
+    // words; what is left still names which box answered, which is the part
+    // worth having.
+    detail = detail
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 160);
   }
 
   switch (status) {
@@ -131,7 +154,10 @@ type StreamEvent = {
  * rather than parsed. Only the `data:` line matters here — the `event:` line
  * repeats the `type` field that is already inside the JSON.
  */
-async function* events(body: ReadableStream<Uint8Array>): AsyncGenerator<StreamEvent> {
+async function* events(
+  body: ReadableStream<Uint8Array>,
+  onDropped: () => void,
+): AsyncGenerator<StreamEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -152,12 +178,15 @@ async function* events(body: ReadableStream<Uint8Array>): AsyncGenerator<StreamE
           if (!line.startsWith('data:')) continue;
           const payload = line.slice(5).trim();
           if (!payload) continue;
+          let parsed: StreamEvent | undefined;
           try {
-            yield JSON.parse(payload) as StreamEvent;
+            parsed = JSON.parse(payload) as StreamEvent;
           } catch {
-            // A malformed frame is not worth killing the answer over; the
-            // stream carries on and the missing delta shows as a gap.
+            // Not worth killing the answer over, but not free either: the
+            // gap it leaves is invisible unless somebody counts it.
+            onDropped();
           }
+          if (parsed) yield parsed;
         }
       }
     }
@@ -181,7 +210,7 @@ export async function streamChat(options: {
   body: RequestBody;
   signal: AbortSignal;
   onDelta: (delta: ChatDelta) => void;
-}): Promise<ChatUsage> {
+}): Promise<ChatResult> {
   let response: Response;
   try {
     response = await fetch(options.target.url, {
@@ -209,8 +238,10 @@ export async function streamChat(options: {
   }
 
   const usage: ChatUsage = emptyUsage();
+  let complete = false;
+  let droppedFrames = 0;
 
-  for await (const event of events(response.body)) {
+  for await (const event of events(response.body, () => (droppedFrames += 1))) {
     switch (event.type) {
       case 'content_block_delta':
         if (event.delta?.type === 'text_delta' && event.delta.text) {
@@ -238,10 +269,16 @@ export async function streamChat(options: {
       case 'error':
         throw new ChatError(200, event.error?.message ?? 'The stream failed.', true);
 
+      // The only thing that says the answer is whole. Falling off the end of
+      // the stream without it means the rest was lost, not that it ended.
+      case 'message_stop':
+        complete = true;
+        break;
+
       default:
         break;
     }
   }
 
-  return usage;
+  return { usage, complete: complete && droppedFrames === 0, droppedFrames };
 }

@@ -80,6 +80,14 @@
       li .star.on { color: var(--accent); }
       .empty { color: var(--faint); font-size: 12.5px; padding: 4px 0; }
 
+      /* Announced, never shown. Clipped rather than `display:none`, which
+         would take it out of the accessibility tree along with the layout. */
+      .visually-hidden {
+        position: absolute; width: 1px; height: 1px; margin: -1px;
+        padding: 0; border: 0; overflow: hidden; white-space: nowrap;
+        clip: rect(0 0 0 0); clip-path: inset(50%);
+      }
+
       /* ---- Chat ---- */
       #chatLog { flex: 1 1 auto; overflow-y: auto; padding: 12px 14px; }
       .turn { margin: 0 0 14px; }
@@ -184,11 +192,14 @@
   </head>
   <body>
     <nav class="views" role="tablist">
-      <button id="tabLookup" type="button" role="tab" aria-selected="true">Lookup</button>
-      <button id="tabChat" type="button" role="tab" aria-selected="false">Chat</button>
+      <button id="tabLookup" type="button" role="tab" aria-selected="true"
+              aria-controls="lookup" tabindex="0">Lookup</button>
+      <button id="tabChat" type="button" role="tab" aria-selected="false"
+              aria-controls="chat" tabindex="-1">Chat</button>
     </nav>
 
-    <section class="view" id="lookup" data-active="true" role="tabpanel">
+    <section class="view" id="lookup" data-active="true" role="tabpanel"
+             aria-labelledby="tabLookup">
       <div id="card"></div>
       <div class="empty-state" id="emptyState">
         <b>Nothing here yet.</b>
@@ -199,8 +210,10 @@
       <ul id="history"><li class="empty">Nothing looked up yet.</li></ul>
     </section>
 
-    <section class="view" id="chat" data-active="false" role="tabpanel">
-      <div id="chatLog">
+    <section class="view" id="chat" data-active="false" role="tabpanel"
+             aria-labelledby="tabChat">
+      <p id="chatStatus" class="visually-hidden" role="status" aria-live="polite"></p>
+      <div id="chatLog" role="log">
         <div class="empty-state" id="chatEmpty">
           <b>Ask about what you are reading.</b>
           Right-click any page and choose <b>Discuss this page with Claude</b>.

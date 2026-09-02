@@ -124,6 +124,12 @@ export type ChatDoneMessage = {
    * printing a dollar figure for the second is a made-up number.
    */
   backend: ChatBackend;
+  /**
+   * False when the stream stopped without saying it was finished. The text
+   * that arrived is real and is kept; what changes is that the panel stops
+   * presenting a fragment as a whole answer.
+   */
+  complete: boolean;
 };
 /**
  * The turn did not finish. `message` is the API's own wording where there

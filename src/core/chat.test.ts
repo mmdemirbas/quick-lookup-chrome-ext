@@ -6,6 +6,8 @@ import {
   emptyUsage,
   handoffPrompt,
   newConversation,
+  reviveConversation,
+  PAGES_KEPT_IN_FULL,
   DEFAULT_CONTEXT_CHARS,
   clipExcerpt,
   estimateCost,
@@ -235,4 +237,116 @@ test('a new conversation starts with nothing spent and no backend claimed', () =
   assert.deepEqual(fresh.usage, emptyUsage());
   assert.equal(fresh.turns.length, 0);
   assert.equal(fresh.backend, 'api');
+});
+
+test('only the newest few pages keep their text; older ones keep their name', () => {
+  // Every page ever attached used to travel on every later turn. Ten pages
+  // measured about 67,000 tokens per request, growing with no ceiling.
+  const turns: ChatTurn[] = [];
+  for (let i = 1; i <= 6; i += 1) {
+    turns.push(
+      turn({
+        id: `u${i}`,
+        role: 'user',
+        text: `Question ${i}`,
+        attachment: attachment({
+          url: `https://example.com/${i}`,
+          title: `Page ${i}`,
+          excerpt: `BODY-OF-PAGE-${i} `.repeat(20),
+        }),
+      }),
+    );
+    turns.push(turn({ id: `a${i}`, role: 'assistant', text: 'Answer.' }));
+  }
+  const body = buildRequest(conversation(turns));
+  const sent = JSON.stringify(body);
+
+  for (const recent of [4, 5, 6]) {
+    assert.match(sent, new RegExp(`BODY-OF-PAGE-${recent}`), `page ${recent} keeps its text`);
+  }
+  for (const old of [1, 2, 3]) {
+    assert.doesNotMatch(sent, new RegExp(`BODY-OF-PAGE-${old}`), `page ${old} drops its text`);
+    assert.match(sent, new RegExp(`https://example.com/${old}`), `page ${old} keeps its address`);
+  }
+  assert.equal(PAGES_KEPT_IN_FULL, 3);
+});
+
+test('a page whose text was dropped says so rather than going quiet', () => {
+  const turns: ChatTurn[] = [];
+  for (let i = 1; i <= 5; i += 1) {
+    turns.push(turn({ id: `u${i}`, role: 'user', text: 'q', attachment: attachment({ url: `https://e/${i}` }) }));
+  }
+  const sent = JSON.stringify(buildRequest(conversation(turns)));
+  assert.match(sent, /text-dropped=\\"true\\"/);
+  assert.match(sent, /no longer included/);
+});
+
+test('the cache breakpoint stays on the newest page once older ones are trimmed', () => {
+  const turns: ChatTurn[] = [];
+  for (let i = 1; i <= 5; i += 1) {
+    turns.push(turn({ id: `u${i}`, role: 'user', text: 'q', attachment: attachment({ url: `https://e/${i}` }) }));
+  }
+  const body = buildRequest(conversation(turns));
+  const marked = body.messages
+    .map((m, i) => (JSON.stringify(m).includes('cache_control') ? i : -1))
+    .filter((i) => i !== -1);
+  assert.deepEqual(marked, [4], 'exactly one breakpoint, on the last attachment');
+});
+
+test('a thread saved before spend moved inside it still opens', () => {
+  // The shape written by the build before `usage` and `backend` lived on the
+  // conversation. Reading `usage.inputTokens` off it threw, the throw landed
+  // in the catch meant for storage being unavailable, and the thread was
+  // replaced with an empty one without anything saying so.
+  const old = { model: 'claude-sonnet-5', turns: [{ id: '1', role: 'user', text: 'Hello' }] };
+  const revived = reviveConversation(old);
+
+  assert.ok(revived, 'a thread that predates the fields is still a thread');
+  assert.equal(revived.turns.length, 1);
+  assert.deepEqual(revived.usage, emptyUsage(), 'missing spend reads as none spent');
+  assert.equal(revived.backend, 'api');
+});
+
+test('what is not a conversation is refused rather than half-read', () => {
+  assert.equal(reviveConversation(undefined), undefined);
+  assert.equal(reviveConversation('a string'), undefined);
+  assert.equal(reviveConversation({ model: 'x' }), undefined, 'no turns array');
+  assert.equal(reviveConversation(42), undefined);
+});
+
+test('turns that are not turns are dropped, and the rest survive', () => {
+  const revived = reviveConversation({
+    model: 'claude-opus-5',
+    turns: [
+      { id: 'a', role: 'user', text: 'kept' },
+      { role: 'wizard', text: 'no such role' },
+      { id: 'c', role: 'assistant' },
+      null,
+      { id: 'e', role: 'assistant', text: 'also kept', truncated: true },
+    ],
+  });
+  assert.equal(revived?.turns.length, 2);
+  assert.equal(revived?.turns[1]?.truncated, true);
+  assert.equal(revived?.model, 'claude-opus-5');
+});
+
+test('an attachment is only carried over when it is actually one', () => {
+  const revived = reviveConversation({
+    model: 'claude-sonnet-5',
+    turns: [
+      { id: '1', role: 'user', text: 'q', attachment: { url: 'https://e/', host: 'e' } },
+      { id: '2', role: 'user', text: 'q', attachment: attachment() },
+    ],
+  });
+  assert.equal(revived?.turns[0]?.attachment, undefined, 'a half-written attachment is dropped');
+  assert.equal(revived?.turns[1]?.attachment?.host, 'example.com');
+});
+
+test('a spend total that is not a number reads as zero, not as NaN', () => {
+  const revived = reviveConversation({
+    model: 'claude-sonnet-5',
+    turns: [],
+    usage: { inputTokens: 'lots', outputTokens: 5, cacheReadTokens: NaN },
+  });
+  assert.deepEqual(revived?.usage, { ...emptyUsage(), outputTokens: 5 });
 });

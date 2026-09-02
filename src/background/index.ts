@@ -257,14 +257,20 @@ async function handleChat(requestId: string, conversation: Conversation): Promis
       return;
     }
 
-    const usage = await streamChat({
+    const result = await streamChat({
       target,
       body: buildRequest(conversation, settings.chat.contextChars),
       signal: controller.signal,
       onDelta: (delta) =>
         toPanel({ type: 'QL_CHAT_DELTA', requestId, kind: delta.kind, text: delta.text }),
     });
-    toPanel({ type: 'QL_CHAT_DONE', requestId, usage, backend: settings.chat.backend });
+    toPanel({
+      type: 'QL_CHAT_DONE',
+      requestId,
+      usage: result.usage,
+      backend: settings.chat.backend,
+      complete: result.complete,
+    });
   } catch (error) {
     // The reader pressed stop, or asked something else. Neither is a failure
     // and neither has anything to say to them.
