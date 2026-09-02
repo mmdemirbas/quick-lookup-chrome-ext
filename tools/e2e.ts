@@ -21,6 +21,8 @@ import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { markFor } from '../src/core/marks.ts';
+import { pageProvider } from '../src/core/providers/page.ts';
+import { packProvider } from '../src/core/providers/pack.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const EXTENSION = path.join(here, '..', 'dist', 'chromium');
@@ -631,6 +633,49 @@ async function checkChatState(
     `${await panel.locator('.turn.assistant').count()} assistant turn(s)`,
   );
 
+  // What a screen reader is told. A live region on the log itself would
+  // re-announce the whole answer per token, so the transitions live in their
+  // own status element — and an announcement nobody asserts is one that goes
+  // quiet the next time the state machine is touched.
+  await panel.click('#chatClear');
+  await panel.fill('#chatInput', 'Something to listen to');
+  await panel.click('#chatSend');
+  await panel.waitForTimeout(400);
+  const announced = await panel.locator('#chatStatus').innerText();
+  record(
+    'a streaming answer is announced to a screen reader',
+    /answering/i.test(announced),
+    JSON.stringify(announced),
+  );
+  record(
+    'and each turn says whose it is',
+    JSON.stringify(
+      await panel.locator('.turn').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label'))),
+    ) === JSON.stringify(['Your question', 'Answer']),
+    await panel
+      .locator('.turn')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')).join(' + ')),
+  );
+  await panel.click('#chatSend');
+  await panel.waitForTimeout(200);
+  await panel.click('#chatClear');
+
+  // A stream that stops without saying it is done. The text is kept; what
+  // must not happen is it being presented as a whole answer.
+  await panel.fill('#chatInput', 'CUT-THIS-OFF please');
+  await panel.click('#chatSend');
+  await panel.waitForFunction(
+    () => document.querySelector('#chatSend')?.textContent === 'Ask',
+    { timeout: 15_000 },
+  );
+  const cutText = await panel.locator('#chatLog').innerText();
+  record(
+    'a stream that stops early is not presented as a finished answer',
+    /cut off/i.test(cutText) && /word1/.test(cutText),
+    cutText.replace(/\s+/g, ' ').slice(0, 80),
+  );
+  await panel.click('#chatClear');
+
   // Let one run long enough to accrue spend, then stop and clear.
   await panel.fill('#chatInput', 'Another one');
   await panel.click('#chatSend');
@@ -903,9 +948,75 @@ async function checkDictionaryPack(
 const paragraph = (page: import('playwright').Page, text: string) =>
   page.locator('body > p').filter({ hasText: text });
 
-type Check = { name: string; ok: boolean; detail: string };
+type Check = { name: string; ok: boolean; detail: string; skipped?: boolean };
+/**
+ * Cuts the extension off from its sources on purpose.
+ *
+ * The outage branch — every check that needs a filled card — is otherwise
+ * reachable only when the network happens to be down, which means it runs
+ * when nobody is watching and never when it is being edited. One run in six
+ * hit it for real and took the whole suite down with it.
+ */
+const OFFLINE = process.env.E2E_OFFLINE === '1';
+
 const checks: Check[] = [];
 const record = (name: string, ok: boolean, detail = '') => checks.push({ name, ok, detail });
+
+/**
+ * A check that could not run, which is not the same as one that failed.
+ *
+ * The smoke test learned this first and carries a per-case `needs:` for it:
+ * on a slow link the providers correctly abandon their requests and leave
+ * the card's slots empty, and asserting on those slots then reports the
+ * extension as broken when the network was the only thing at fault. This
+ * suite asserted them anyway — one run in six went red for exactly that,
+ * with six checks falling over behind a card that had no sources at all.
+ */
+const skip = (name: string, detail: string) =>
+  checks.push({ name, ok: true, detail, skipped: true });
+
+/**
+ * Runs a group of checks that need a card the network actually filled.
+ *
+ * Skipping the assertions was not enough on its own: several of these groups
+ * *wait* for provider-filled DOM before they assert anything, and a wait that
+ * never resolves throws out of the whole run rather than failing one check.
+ * A timeout is therefore forgiven only when nothing answered — with sources
+ * present the same timeout is a real regression and still stops the run.
+ */
+async function section(name: string, online: boolean, run: () => Promise<void>): Promise<void> {
+  const before = checks.length;
+
+  // The other half of the same problem, and the one that stayed broken
+  // longer: a wait does not have to throw. Several of these groups swallow
+  // their own timeout — `.waitFor(...).catch(() => false)` — and record a
+  // plain failure, which no `catch` around the group can see. Forgiving only
+  // the thrown kind left `E2E_OFFLINE=1` red on a check that had simply been
+  // given nothing to look at.
+  const forgive = () => {
+    for (const check of checks.slice(before)) {
+      if (check.ok) continue;
+      check.ok = true;
+      check.skipped = true;
+      check.detail = check.detail
+        ? `needs a source the network was to fill — ${check.detail}`
+        : 'needs a source the network was to fill, and none answered';
+    }
+  };
+
+  try {
+    await run();
+  } catch (error) {
+    const timedOut = error instanceof Error && /Timeout|timeout/.test(error.message);
+    if (timedOut && !online) {
+      forgive();
+      skip(name, 'needs a card the sources filled, and none answered');
+      return;
+    }
+    throw error;
+  }
+  if (!online) forgive();
+}
 
 /**
  * The fixture page, plus a stand-in for a chat backend.
@@ -918,23 +1029,42 @@ const record = (name: string, ok: boolean, detail = '') => checks.push({ name, o
  * could previously have seen.
  */
 const server = http.createServer((request, response) => {
-  if (request.url === '/v1/messages') {
-    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    const frame = (event: string, data: unknown) =>
-      response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    frame('message_start', {
-      type: 'message_start',
-      message: { usage: { input_tokens: 11, cache_read_input_tokens: 0, cache_creation_input_tokens: 4000 } },
-    });
-    let sent = 0;
-    const timer = setInterval(() => {
-      if (response.writableEnded) return clearInterval(timer);
-      frame('content_block_delta', {
-        type: 'content_block_delta',
-        delta: { type: 'text_delta', text: `word${(sent += 1)} ` },
+  if (request.url?.startsWith('/v1/messages')) {
+    // The body is read before anything is written back, because what it says
+    // decides how this responds. Writing the head first and deciding later
+    // races the first frame against the request arriving.
+    let asked = '';
+    request.on('data', (chunk) => (asked += chunk));
+    request.on('end', () => {
+      // A marker in the question rather than in the URL: the client builds
+      // its own path from a configured base, so a query string put on that
+      // base lands mid-path and never reaches here.
+      const cut = asked.includes('CUT-THIS-OFF');
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      const frame = (event: string, data: unknown) =>
+        response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      frame('message_start', {
+        type: 'message_start',
+        message: {
+          usage: { input_tokens: 11, cache_read_input_tokens: 0, cache_creation_input_tokens: 4000 },
+        },
       });
-    }, 300);
-    request.on('close', () => clearInterval(timer));
+      let sent = 0;
+      const timer = setInterval(() => {
+        if (response.writableEnded) return clearInterval(timer);
+        frame('content_block_delta', {
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: `word${(sent += 1)} ` },
+        });
+        // Ends without a `message_stop`, which is what a dropped connection
+        // looks like from the client's side.
+        if (cut) {
+          clearInterval(timer);
+          response.end();
+        }
+      }, 300);
+      response.on('close', () => clearInterval(timer));
+    });
     return;
   }
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -981,6 +1111,11 @@ try {
     if (message.type() === 'error') workerErrors.push(message.text());
   });
 
+  if (OFFLINE) {
+    // Everything except the fixture host and the extension's own pages.
+    await context.route(/^https?:\/\/(?!127\.0\.0\.1)/, (route) => route.abort());
+  }
+
   const page = await context.newPage();
   const pageErrors: string[] = [];
   page.on('console', (message) => {
@@ -996,6 +1131,7 @@ try {
   // extension: this is the gesture a reader makes.
   await paragraph(page, 'A manifest is a metadata file').dblclick({ position: { x: 20, y: 10 } });
 
+  let online = false;
   const card = page.locator('quick-lookup-card .card');
   const appeared = await card
     .waitFor({ state: 'visible', timeout: 10_000 })
@@ -1007,23 +1143,101 @@ try {
     const headword = (await page.locator('quick-lookup-card header .query').textContent()) ?? '';
     record('the card names what was selected', /manifest/i.test(headword), `query=${headword}`);
 
+    // Wait for the card to stop being empty before asserting on what is in
+    // it. A cold service worker measured 4s from the double-click to the
+    // first filled slot when the machine was idle, and the checks below used
+    // to start their own short polls immediately — so on a busy machine they
+    // were reading a card that had not been answered yet and calling the
+    // extension broken. The footer naming a source is the first thing that
+    // says an answer arrived at all.
+    //
+    // This also replaces a fixed 2.5s sleep that used to sit further down for
+    // the same purpose. A sleep that is usually long enough is a suite that
+    // usually passes.
+    // The card says when it is done: a slot still waiting for its provider
+    // draws a `.pending` skeleton, and the composer clears the last of them
+    // only once every provider has settled. Waiting for the first source
+    // instead is not the same thing and was tried — the local page answers
+    // first, so the wait ended before any network source had landed and the
+    // whole run then reported itself offline.
+    const settled = await (async () => {
+      const until = Date.now() + 20_000;
+      for (;;) {
+        const state = await page.evaluate(() => {
+          const root = document.querySelector('quick-lookup-card')?.shadowRoot;
+          return {
+            pending: root?.querySelectorAll('section.pending').length ?? 1,
+            names: [...(root?.querySelectorAll('footer .source > span:not(.mark)') ?? [])].map(
+              (span) => span.textContent ?? '',
+            ),
+          };
+        });
+        if ((state.pending === 0 && state.names.length > 0) || Date.now() > until) {
+          return state.names;
+        }
+        await page.waitForTimeout(200);
+      }
+    })();
+    record(
+      'every source the card asked settles, and at least one answers',
+      settled.length > 0,
+      settled.length > 0 ? settled.join(', ') : 'nothing answered in 20s',
+    );
+
+    // "Online" means a source that had to leave the machine answered — not
+    // that any source did. The page provider always answers on this fixture,
+    // so counting every name made the gates below unreachable and turned a
+    // blocked network into three failures. The labels are imported rather
+    // than spelled out so renaming one cannot silently re-break it.
+    const localSources = [pageProvider.label, packProvider.label].map((label) =>
+      label.toLowerCase(),
+    );
+    online = settled.some((name) => !localSources.includes(name.trim().toLowerCase()));
+    const offline = OFFLINE
+      ? 'the sources were blocked by E2E_OFFLINE'
+      : 'no network source answered, and the card needs one';
+
     // The sentence the word was met in, with the word marked. Local, and the
     // thing that lets a card that has been dragged aside — or copied into a
     // note — still say why the word was worth looking up.
-    const marked = await page
-      .locator('quick-lookup-card .incontext mark')
-      .first()
-      .waitFor({ timeout: 6000 })
-      .then(() =>
-        page.locator('quick-lookup-card .incontext mark').first().textContent(),
-      )
-      .catch(() => null);
-    const sentence =
-      (await page.locator('quick-lookup-card .incontext').first().textContent().catch(() => null)) ?? '';
+    // Polled to a deadline, both halves together. The card re-renders as each
+    // provider lands, so waiting for the mark and then reading the sentence
+    // can read across a render and see one without the other — which failed
+    // once in six runs with every provider healthy.
+    const incontext = await (async () => {
+      const until = Date.now() + 8_000;
+      // The per-read timeout is the whole reason this polls at all. Without
+      // it a miss waits Playwright's default 30s, so the first iteration
+      // alone outlives the 8s deadline and the loop returns one stale
+      // sample — which is how a card that did have `<mark>manifest</mark>`
+      // in it reported `mark=""`.
+      const read = async (selector: string) =>
+        (await page
+          .locator(selector)
+          .first()
+          .textContent({ timeout: 400 })
+          .catch(() => null)) ?? '';
+      for (;;) {
+        const last = {
+          marked: await read('quick-lookup-card .incontext mark'),
+          sentence: await read('quick-lookup-card .incontext'),
+          html: await page.evaluate(
+            () =>
+              document.querySelector('quick-lookup-card')?.shadowRoot?.querySelector('.incontext')
+                ?.innerHTML ?? '',
+          ),
+        };
+        const good =
+          last.marked.toLowerCase() === 'manifest' && /metadata file that lists/.test(last.sentence);
+        if (good || Date.now() > until) return last;
+        await page.waitForTimeout(150);
+      }
+    })();
     record(
       'the card shows the sentence the word was met in, with the word marked',
-      marked?.toLowerCase() === 'manifest' && /metadata file that lists/.test(sentence),
-      sentence.slice(0, 56),
+      incontext.marked.toLowerCase() === 'manifest' &&
+        /metadata file that lists/.test(incontext.sentence),
+      `mark=${JSON.stringify(incontext.marked)} for query=${JSON.stringify(headword.trim())} html=${JSON.stringify(incontext.html.slice(0, 200))}`,
     );
 
     // Local, so it must arrive regardless of the network.
@@ -1034,10 +1248,6 @@ try {
       /metadata file that lists the data files/i.test(quoted),
       quoted ? `"${quoted.slice(0, 70)}…"` : 'no sentence from the page',
     );
-
-    // Network sources are reported rather than asserted: an outage is not a
-    // defect in the extension.
-    await page.waitForTimeout(2500);
 
     // How common the word is, drawn as a bar. The band comes from a corpus,
     // so the count is checked for being a band at all rather than for being a
@@ -1052,11 +1262,15 @@ try {
         label: root?.querySelector('.frequency .band')?.textContent ?? '',
       };
     });
-    record(
-      'the card says how common the word is',
-      bar.cells === 5 && bar.on >= 1 && bar.on <= 5 && bar.label.length > 0,
-      `${bar.on}/${bar.cells} — ${bar.label || 'no reading'}`,
-    );
+    if (!online) {
+      skip('the card says how common the word is', offline);
+    } else {
+      record(
+        'the card says how common the word is',
+        bar.cells === 5 && bar.on >= 1 && bar.on <= 5 && bar.label.length > 0,
+        `${bar.on}/${bar.cells} — ${bar.label || 'no reading'}`,
+      );
+    }
     // The mark each link and each source wears. Three things can go wrong and
     // only the browser can tell: the mark can be missing, it can land on the
     // wrong site, or its colour can fail to resolve — a custom property that
@@ -1089,7 +1303,8 @@ try {
       (link) => markFor('', link.href).letter !== link.letter,
     );
     const hues = new Set(marks.links.map((link) => link.hue));
-    record(
+    if (!online) skip('every link wears its own site mark', offline);
+    else record(
       'every link wears its own site mark',
       marks.links.length >= 3 &&
         marks.links.every((link) => link.letter.length > 0 && painted(link.paint)) &&
@@ -1099,17 +1314,15 @@ try {
         ? `${misplaced[0]?.letter} on ${misplaced[0]?.href}`
         : marks.links.map((link) => `${link.letter}=${link.hue}`).join(' '),
     );
-    record(
+    if (!online) skip('the sources say which site answered, in that site’s colour', offline);
+    else record(
       'the sources say which site answered, in that site’s colour',
       marks.sources.length > 0 &&
         marks.sources.every((mark) => mark.letter.length > 0 && painted(mark.paint)),
       marks.sources.map((mark) => mark.letter).join(' ') || 'no source marks',
     );
 
-    const answered = await page
-      .locator('quick-lookup-card footer .source > span:not(.mark)')
-      .allTextContents();
-    console.log(`\n  Sources: ${answered.join(', ')}`);
+    console.log(`\n  Sources: ${settled.join(', ') || '(none answered)'}`);
 
     // Copying is checked through the real clipboard rather than by asserting
     // on the string the formatter returned — the unit tests already cover the
@@ -1176,19 +1389,28 @@ try {
       .then(() => true)
       .catch(() => false);
     record('Escape closes the card', closed);
-    if (closed) await checkBottomPlacement(page);
-    if (closed) await checkHandle(page);
+    if (closed) await section('card sits above the fold', online, () => checkBottomPlacement(page));
+    if (closed) await section('the selection handle', online, () => checkHandle(page));
   }
 
   const extensionId = worker.url().split('/')[2] ?? '';
+  // Captured because the checks below run inside closures, where the
+  // narrowing that `context` has at this point does not reach.
+  const browser = context;
   await checkTranslationDownload(context, extensionId);
-  await checkFollowing(context, origin);
-  await checkPinning(context, origin);
-  await checkPanel(context, worker, extensionId, origin);
-  await checkChat(context, worker, extensionId);
-  await checkChatState(context, extensionId, origin);
-  await checkHistory(context, extensionId);
-  await checkDictionaryPack(context, extensionId, origin);
+  await section('following a related word', online, () => checkFollowing(browser, origin));
+  await section('pinning two cards', online, () => checkPinning(browser, origin));
+  await section('the panel mirrors a lookup', online, () =>
+    checkPanel(browser, worker, extensionId, origin),
+  );
+  // The conversation checks answer from a stub on this machine, so they run
+  // whatever the network is doing. That is the point of the stub.
+  await checkChat(browser, worker, extensionId);
+  await checkChatState(browser, extensionId, origin);
+  await section('history', online, () => checkHistory(browser, extensionId));
+  await section('dictionary packs', online, () =>
+    checkDictionaryPack(browser, extensionId, origin),
+  );
 
   record('no errors from the background script', workerErrors.length === 0, workerErrors.join(' | '));
   record('no errors on the page', pageErrors.length === 0, pageErrors.join(' | '));
@@ -1199,9 +1421,17 @@ try {
 
 console.log('');
 let failed = 0;
+let skipped = 0;
 for (const check of checks) {
-  if (!check.ok) failed++;
-  console.log(`  ${check.ok ? 'ok  ' : 'FAIL'} ${check.name}${check.detail ? ` — ${check.detail}` : ''}`);
+  if (check.skipped) skipped++;
+  else if (!check.ok) failed++;
+  const mark = check.skipped ? 'skip' : check.ok ? 'ok  ' : 'FAIL';
+  console.log(`  ${mark} ${check.name}${check.detail ? ` — ${check.detail}` : ''}`);
 }
-console.log(failed === 0 ? '\nThe extension works in a browser.' : `\n${failed} check(s) failed.`);
+const tail = skipped ? ` ${skipped} skipped: the network, not the extension.` : '';
+console.log(
+  failed === 0
+    ? `\nThe extension works in a browser.${tail}`
+    : `\n${failed} check(s) failed.${tail}`,
+);
 process.exit(failed === 0 ? 0 : 1);
