@@ -13,7 +13,7 @@
  * and nothing above here knows how it is sent.
  */
 
-import type { RequestBody } from '../core/chat.ts';
+import { emptyUsage, type ChatUsage, type RequestBody } from '../core/chat.ts';
 
 const ENDPOINT = 'https://api.anthropic.com/v1/messages';
 
@@ -70,12 +70,6 @@ export function bridgeTarget(baseUrl: string, token: string): ChatTarget {
 export type ChatDelta =
   | { kind: 'thinking'; text: string }
   | { kind: 'text'; text: string };
-
-export type ChatUsage = {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-};
 
 /**
  * A failure with the API's own words kept.
@@ -214,7 +208,7 @@ export async function streamChat(options: {
     );
   }
 
-  const usage: ChatUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
+  const usage: ChatUsage = emptyUsage();
 
   for await (const event of events(response.body)) {
     switch (event.type) {
@@ -229,6 +223,10 @@ export async function streamChat(options: {
       case 'message_start':
         usage.inputTokens = event.message?.usage?.input_tokens ?? 0;
         usage.cacheReadTokens = event.message?.usage?.cache_read_input_tokens ?? 0;
+        // Not part of `input_tokens`, and on a first question about a page it
+        // is nearly all of the bill. Omitting it made the meter read ~$0.00
+        // for the single most expensive turn in a thread.
+        usage.cacheCreationTokens = event.message?.usage?.cache_creation_input_tokens ?? 0;
         break;
 
       case 'message_delta':

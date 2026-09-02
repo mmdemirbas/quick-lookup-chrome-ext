@@ -75,10 +75,54 @@ export type ChatTurn = {
   failed?: boolean;
 };
 
+/**
+ * What a thread has spent.
+ *
+ * Lives here rather than in the platform layer because the conversation owns
+ * it: it is a property of the thread, not of the transport that carried it.
+ */
+export type ChatUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  /**
+   * Tokens written to the cache, billed at about 1.25x input.
+   *
+   * A separate field in the API's accounting and **not** part of
+   * `input_tokens`, which is the trap: on the first question about a page the
+   * whole page is cache creation, so a meter that reads only `input_tokens`
+   * reports nearly nothing for the turn that costs the most.
+   */
+  cacheCreationTokens: number;
+};
+
+export const emptyUsage = (): ChatUsage => ({
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+});
+
 export type Conversation = {
   model: string;
   turns: ChatTurn[];
+  /**
+   * Spend and backend live on the conversation and nowhere else.
+   *
+   * They were previously a second copy held beside it, which is how a cleared
+   * thread went on reporting the spend of the thread before it, and how a
+   * bridge thread started quoting dollars again the moment the panel was
+   * reopened. One fact, one owner.
+   */
+  usage: ChatUsage;
+  /** Which backend last answered. Decides whether a cost can honestly be shown. */
+  backend: ChatBackend;
 };
+
+/** A thread with nothing in it yet. */
+export function newConversation(model: string): Conversation {
+  return { model, turns: [], usage: emptyUsage(), backend: 'api' };
+}
 
 /**
  * A model the panel offers.
@@ -175,20 +219,48 @@ export type RequestBody = {
  * look exactly like instructions and the model has to be able to tell the
  * reader's question from the page's prose.
  */
+/**
+ * Stops page text from closing the container it was put in.
+ *
+ * Verified rather than assumed: an excerpt containing a literal `</page>`
+ * produced two closing tags, and everything after the first read as though it
+ * came from outside the page — including a forged `User:` line, which is the
+ * exact marker the local bridge uses to separate turns when it flattens the
+ * conversation for the CLI. A page is text a stranger wrote; the fence around
+ * it has to be one the text cannot reach.
+ *
+ * Quoting is not available here — this is a prompt, not a parser — so the
+ * closing sequences are broken with a zero-width space. The model reads the
+ * words unchanged; the fence stays closed.
+ */
+function fence(text: string): string {
+  return text.replace(/<\/(page|selection)>/gi, '<\u200b/$1>');
+}
+
+/**
+ * Makes a value safe to sit inside a quoted attribute.
+ *
+ * Dropping the quote is not enough, and the test that says so is worth
+ * keeping: the reader of this text is a model, not an XML parser, so a `>`
+ * left inside the value still *looks* like the tag ended there. Angle
+ * brackets go too. A URL that needs them was already broken.
+ */
+const attribute = (value: string): string => value.replace(/["<>]/g, '');
+
 export function attachmentBlock(attachment: Attachment): string {
   const clipped = wasClipped(attachment);
   const head = [
-    `<page url="${attachment.url}" title="${attachment.title.replace(/"/g, "'")}"`,
+    `<page url="${attribute(attachment.url)}" title="${attribute(attachment.title)}"`,
     clipped ? ` clipped="true" full-length="${attachment.fullLength}"` : '',
     '>',
   ].join('');
   const selection = attachment.selection
-    ? `\n\nThe reader had this selected:\n<selection>\n${attachment.selection}\n</selection>`
+    ? `\n\nThe reader had this selected:\n<selection>\n${fence(attachment.selection)}\n</selection>`
     : '';
   const notice = clipped
     ? `\n\n[This page was clipped to the first ${attachment.excerpt.length} of ${attachment.fullLength} characters. The rest was not sent.]`
     : '';
-  return `${head}\n${attachment.excerpt}\n</page>${notice}${selection}`;
+  return `${head}\n${fence(attachment.excerpt)}\n</page>${notice}${selection}`;
 }
 
 /**
@@ -253,16 +325,16 @@ export function buildRequest(conversation: Conversation, contextChars?: number):
 }
 
 /** A rough running cost for the conversation, in US dollars. */
-export function estimateCost(
-  model: string,
-  usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number },
-): number {
+export function estimateCost(model: string, usage: ChatUsage): number {
   const choice = modelChoice(model);
-  // Cache reads bill at about a tenth of the input rate.
-  const input = (usage.inputTokens * choice.inputPrice) / 1_000_000;
-  const cached = (usage.cacheReadTokens * choice.inputPrice * 0.1) / 1_000_000;
+  const per = choice.inputPrice / 1_000_000;
+  // Three input rates, not one. Cache reads are about a tenth; cache writes
+  // are about 1.25x and are the bulk of a first question about a page.
+  const input = usage.inputTokens * per;
+  const cached = usage.cacheReadTokens * per * 0.1;
+  const written = usage.cacheCreationTokens * per * 1.25;
   const output = (usage.outputTokens * choice.outputPrice) / 1_000_000;
-  return input + cached + output;
+  return input + cached + written + output;
 }
 
 /**

@@ -16,13 +16,14 @@ import {
   handoffPrompt,
   estimateCost,
   modelChoice,
+  newConversation,
   wasClipped,
   type Attachment,
   type ChatTurn,
   type ChatBackend,
+  type ChatUsage,
   type Conversation,
 } from '../core/chat.ts';
-import type { ChatUsage } from '../platform/anthropic.ts';
 
 export type ChatCallbacks = {
   onSend: (conversation: Conversation, requestId: string) => void;
@@ -50,18 +51,12 @@ type Elements = {
   handoff: HTMLButtonElement;
 };
 
-/** Running totals for the thread, so the cost line is not per-turn noise. */
-const emptyUsage = (): ChatUsage => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 });
-
 export class ChatView {
   private conversation: Conversation;
-  private usage: ChatUsage = emptyUsage();
   /** The page waiting to go with the next question, if the reader staged one. */
   private staged: Attachment | undefined;
   /** The turn currently being streamed into, and the request that owns it. */
   private streaming: { requestId: string; turn: ChatTurn } | undefined;
-  /** Which backend last answered, because it decides what the meter can say. */
-  private backend: ChatBackend = 'api';
 
   constructor(
     private readonly elements: Elements,
@@ -74,10 +69,15 @@ export class ChatView {
     this.draw();
   }
 
-  /** Restores a thread saved by a previous life of this document. */
-  restore(conversation: Conversation, usage: ChatUsage): void {
+  /**
+   * Restores a thread saved by a previous life of this document.
+   *
+   * Spend and backend ride along inside the conversation, which is the point
+   * of them living there: reopening the panel used to reset the backend to
+   * `api` and start quoting dollars for answers a subscription had paid for.
+   */
+  restore(conversation: Conversation): void {
     this.conversation = conversation;
-    this.usage = usage;
     this.elements.model.value = conversation.model;
     this.draw();
   }
@@ -134,8 +134,10 @@ export class ChatView {
     });
 
     this.elements.clear.addEventListener('click', () => {
-      this.conversation = { model: this.conversation.model, turns: [] };
-      this.usage = emptyUsage();
+      // One object replaced, so nothing can survive the clear by being held
+      // somewhere else. The spend used to, and an emptied thread went on
+      // reporting the cost of the thread before it.
+      this.conversation = newConversation(this.conversation.model);
       this.staged = undefined;
       this.callbacks.onChanged(this.conversation);
       this.draw();
@@ -178,7 +180,17 @@ export class ChatView {
 
   private cancel(): void {
     this.callbacks.onCancel();
-    this.finish(undefined);
+    const turn = this.streaming?.turn;
+    // An answer that never started is not an answer. Left in place it draws
+    // as a blank block under the question and is saved that way, so a stopped
+    // question kept an empty reply beneath it for the life of the thread.
+    // A turn that did produce text keeps it: those are the model's own words
+    // and belong in the thread and in the next request.
+    if (turn && !turn.text.trim()) {
+      const at = this.conversation.turns.indexOf(turn);
+      if (at !== -1) this.conversation.turns.splice(at, 1);
+    }
+    this.finish();
   }
 
   /** One fragment of the answer. */
@@ -192,13 +204,15 @@ export class ChatView {
 
   done(requestId: string, usage: ChatUsage, backend: ChatBackend = 'api'): void {
     if (this.streaming?.requestId !== requestId) return;
-    this.backend = backend;
-    this.usage = {
-      inputTokens: this.usage.inputTokens + usage.inputTokens,
-      outputTokens: this.usage.outputTokens + usage.outputTokens,
-      cacheReadTokens: this.usage.cacheReadTokens + usage.cacheReadTokens,
+    const running = this.conversation.usage;
+    this.conversation.backend = backend;
+    this.conversation.usage = {
+      inputTokens: running.inputTokens + usage.inputTokens,
+      outputTokens: running.outputTokens + usage.outputTokens,
+      cacheReadTokens: running.cacheReadTokens + usage.cacheReadTokens,
+      cacheCreationTokens: running.cacheCreationTokens + usage.cacheCreationTokens,
     };
-    this.finish(usage);
+    this.finish();
   }
 
   failed(requestId: string, message: string, retryable: boolean): void {
@@ -209,10 +223,10 @@ export class ChatView {
     // answer to anything. `failed` keeps it out of the next request.
     turn.text = retryable ? `${message} Worth trying again.` : message;
     turn.failed = true;
-    this.finish(undefined);
+    this.finish();
   }
 
-  private finish(_usage: ChatUsage | undefined): void {
+  private finish(): void {
     this.streaming = undefined;
     this.callbacks.onChanged(this.conversation);
     this.draw();
@@ -302,21 +316,23 @@ export class ChatView {
   }
 
   private drawMeter(): void {
-    const spent = this.usage.inputTokens + this.usage.outputTokens + this.usage.cacheReadTokens;
+    const usage = this.conversation.usage;
+    const spent =
+      usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheCreationTokens;
     if (!spent) {
       this.elements.meter.textContent = '';
       return;
     }
     // The bridge spends a subscription, not dollars. Pricing its answers at
     // the API's rates would be inventing a number that nobody is billed.
-    if (this.backend === 'bridge') {
+    if (this.conversation.backend === 'bridge') {
       this.elements.meter.textContent =
         `${modelChoice(this.conversation.model).label} \u00b7 via Claude Code on this machine`;
       return;
     }
-    const cost = estimateCost(this.conversation.model, this.usage);
-    const cached = this.usage.cacheReadTokens
-      ? `, ${Math.round(this.usage.cacheReadTokens / 1000)}k from cache`
+    const cost = estimateCost(this.conversation.model, usage);
+    const cached = usage.cacheReadTokens
+      ? `, ${Math.round(usage.cacheReadTokens / 1000)}k from cache`
       : '';
     this.elements.meter.textContent =
       `${modelChoice(this.conversation.model).label} · ` +

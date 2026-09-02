@@ -20,9 +20,8 @@
 import { CardView } from '../content/card-view.ts';
 import { renderHistory } from '../shared/history-list.ts';
 import { ext } from '../platform/browser.ts';
-import { DEFAULT_MODEL, HANDOFF_URL, type Conversation } from '../core/chat.ts';
+import { DEFAULT_MODEL, HANDOFF_URL, newConversation, type Conversation } from '../core/chat.ts';
 import { ChatView } from './chat-view.ts';
-import type { ChatUsage } from '../platform/anthropic.ts';
 import type { HistoryItem } from '../core/store.ts';
 import type { Attachment } from '../core/chat.ts';
 import type { KeyState, ToContent, ToPanel } from '../shared/messages.ts';
@@ -124,7 +123,14 @@ async function threadKey(): Promise<string> {
   }
 }
 
-type SavedThread = { conversation: Conversation; usage: ChatUsage };
+/**
+ * The whole thread, and nothing beside it.
+ *
+ * It used to carry a second `usage` object kept in this file. Two owners for
+ * one fact is how a cleared thread went on reporting spend: the view reset
+ * its copy and this one was written to storage unchanged.
+ */
+type SavedThread = { conversation: Conversation };
 
 const chatElements = {
   log: document.getElementById('chatLog'),
@@ -173,17 +179,14 @@ if (
       onChanged: (conversation) => void saveThread(conversation),
       onHandoff: (prompt) => void handoff(prompt),
     },
-    { model: DEFAULT_MODEL, turns: [] },
+    newConversation(DEFAULT_MODEL),
   );
 }
-
-/** The running usage, kept here because only the view knows the thread. */
-let savedUsage: ChatUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
 
 async function saveThread(conversation: Conversation): Promise<void> {
   try {
     const key = await threadKey();
-    const value: SavedThread = { conversation, usage: savedUsage };
+    const value: SavedThread = { conversation };
     await ext.storage.session.set({ [key]: value });
   } catch {
     // Session storage is unavailable or full. The thread still works for as
@@ -198,8 +201,7 @@ async function loadThread(): Promise<void> {
     const stored = await ext.storage.session.get(key);
     const saved = stored[key] as SavedThread | undefined;
     if (saved?.conversation?.turns) {
-      savedUsage = saved.usage;
-      chat.restore(saved.conversation, saved.usage);
+      chat.restore(saved.conversation);
       return;
     }
   } catch {
@@ -211,7 +213,7 @@ async function loadThread(): Promise<void> {
     const settings = await ext.runtime.sendMessage({ type: 'QL_GET_SETTINGS' });
     const model = settings?.chat?.model;
     if (typeof model === 'string') {
-      chat.restore({ model, turns: [] }, savedUsage);
+      chat.restore(newConversation(model));
     }
   } catch {
     // The default in the picker already stands.
@@ -318,11 +320,6 @@ ext.runtime.onMessage.addListener((message: ToContent | ToPanel) => {
       chat?.delta(message.requestId, message.kind, message.text);
       return;
     case 'QL_CHAT_DONE':
-      savedUsage = {
-        inputTokens: savedUsage.inputTokens + message.usage.inputTokens,
-        outputTokens: savedUsage.outputTokens + message.usage.outputTokens,
-        cacheReadTokens: savedUsage.cacheReadTokens + message.usage.cacheReadTokens,
-      };
       chat?.done(message.requestId, message.usage, message.backend);
       return;
     case 'QL_CHAT_FAILED':

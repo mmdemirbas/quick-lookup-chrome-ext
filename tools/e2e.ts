@@ -563,6 +563,93 @@ async function checkChat(context: BrowserContext, worker: Worker, id: string): P
   await panel.close();
 }
 
+/**
+ * What the panel does to the thread when an answer is stopped or cleared.
+ *
+ * Driven against the stub backend above rather than a real one, so it is
+ * deterministic and free. Both cases here were bugs found by review after the
+ * feature was called done, which is the argument for the stub existing.
+ */
+async function checkChatState(
+  context: BrowserContext,
+  id: string,
+  origin: string,
+): Promise<void> {
+  const panel = await context.newPage();
+  await panel.goto(`chrome-extension://${id}/panel.html`, { waitUntil: 'domcontentloaded' });
+  await panel.evaluate(async (base) => {
+    await chrome.runtime.sendMessage({
+      type: 'QL_CHAT_SAVE_KEY',
+      apiKey: 'stub-token',
+      which: 'bridge',
+    });
+    const settings = await chrome.runtime.sendMessage({ type: 'QL_GET_SETTINGS' });
+    settings.chat.backend = 'bridge';
+    settings.chat.bridgeUrl = base.replace(/\/$/, '');
+    await chrome.runtime.sendMessage({ type: 'QL_SAVE_SETTINGS', settings });
+  }, origin);
+  await panel.reload();
+  await panel.click('#tabChat');
+
+  type StoredThread = {
+    turns: { role: string; text: string }[];
+    usage: Record<string, number> | undefined;
+    backend: string | undefined;
+  };
+  const stored = (): Promise<StoredThread> =>
+    panel.evaluate(async () => {
+      const win = await chrome.windows.getCurrent();
+      const saved = (await chrome.storage.session.get(`chat:${win.id}`))[`chat:${win.id}`];
+      return {
+        turns: (saved?.conversation?.turns ?? []).map((t: { role: string; text: string }) => ({
+          role: t.role,
+          text: t.text,
+        })),
+        usage: saved?.conversation?.usage,
+        backend: saved?.conversation?.backend,
+      };
+    });
+
+  // Stop before a single word arrives.
+  await panel.fill('#chatInput', 'Something to interrupt');
+  await panel.click('#chatSend');
+  await panel.waitForFunction(
+    () => document.querySelector('#chatSend')?.textContent === 'Stop',
+    { timeout: 5_000 },
+  );
+  await panel.click('#chatSend');
+  await panel.waitForTimeout(300);
+  const afterStop = await stored();
+  record(
+    'stopping before any answer leaves no empty reply behind',
+    afterStop.turns.length === 1 && afterStop.turns[0]?.role === 'user',
+    JSON.stringify(afterStop.turns.map((turn) => `${turn.role}:${JSON.stringify(turn.text)}`)),
+  );
+  record(
+    'and nothing blank is drawn where the answer would have been',
+    (await panel.locator('.turn.assistant').count()) === 0,
+    `${await panel.locator('.turn.assistant').count()} assistant turn(s)`,
+  );
+
+  // Let one run long enough to accrue spend, then stop and clear.
+  await panel.fill('#chatInput', 'Another one');
+  await panel.click('#chatSend');
+  await panel.waitForTimeout(900);
+  await panel.click('#chatSend');
+  await panel.waitForTimeout(200);
+  await panel.click('#chatClear');
+  await panel.waitForTimeout(300);
+  const afterClear = await stored();
+  const spent = Object.values(afterClear.usage ?? {}).reduce((total, n) => total + n, 0);
+  record(
+    'clearing the thread clears what it spent, in storage and not only on screen',
+    afterClear.turns.length === 0 && spent === 0,
+    `${afterClear.turns.length} turn(s), usage total ${spent}`,
+  );
+
+  await panel.close();
+}
+
 async function checkPanel(
   context: BrowserContext,
   worker: Worker,
@@ -820,7 +907,36 @@ type Check = { name: string; ok: boolean; detail: string };
 const checks: Check[] = [];
 const record = (name: string, ok: boolean, detail = '') => checks.push({ name, ok, detail });
 
-const server = http.createServer((_request, response) => {
+/**
+ * The fixture page, plus a stand-in for a chat backend.
+ *
+ * `/v1/messages` answers in the same Anthropic-shaped SSE both real backends
+ * speak, one word every 300ms, and never finishes on its own. That is what
+ * makes the panel's own state machine testable without a key, a subscription
+ * or a network: pressing Stop mid-answer is a real case with real
+ * consequences for the thread, and it had a bug in it that no offline check
+ * could previously have seen.
+ */
+const server = http.createServer((request, response) => {
+  if (request.url === '/v1/messages') {
+    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    const frame = (event: string, data: unknown) =>
+      response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    frame('message_start', {
+      type: 'message_start',
+      message: { usage: { input_tokens: 11, cache_read_input_tokens: 0, cache_creation_input_tokens: 4000 } },
+    });
+    let sent = 0;
+    const timer = setInterval(() => {
+      if (response.writableEnded) return clearInterval(timer);
+      frame('content_block_delta', {
+        type: 'content_block_delta',
+        delta: { type: 'text_delta', text: `word${(sent += 1)} ` },
+      });
+    }, 300);
+    request.on('close', () => clearInterval(timer));
+    return;
+  }
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   response.end(FIXTURE);
 });
@@ -1070,6 +1186,7 @@ try {
   await checkPinning(context, origin);
   await checkPanel(context, worker, extensionId, origin);
   await checkChat(context, worker, extensionId);
+  await checkChatState(context, extensionId, origin);
   await checkHistory(context, extensionId);
   await checkDictionaryPack(context, extensionId, origin);
 

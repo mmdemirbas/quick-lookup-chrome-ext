@@ -3,8 +3,7 @@ import type { Card, PageContext } from '../core/types.ts';
 import type { Settings } from '../core/settings.ts';
 import type { HistoryItem } from '../core/store.ts';
 import type { Capabilities } from '../platform/ai.ts';
-import type { Attachment, ChatBackend, Conversation } from '../core/chat.ts';
-import type { ChatUsage } from '../platform/anthropic.ts';
+import type { Attachment, ChatBackend, ChatUsage, Conversation } from '../core/chat.ts';
 
 export type LookupMessage = {
   type: 'QL_LOOKUP';
