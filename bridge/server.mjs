@@ -42,6 +42,26 @@ const TOKEN_FILE = join(STATE_DIR, 'bridge-token');
 const NEUTRAL_DIR = join(STATE_DIR, 'workspace');
 
 /**
+ * How long one answer may take before the child is killed.
+ *
+ * A `claude` process that never returns holds a subscription slot and a
+ * pipe for as long as the client stays connected, which for a side panel
+ * left open is indefinitely. Generous enough that a genuinely slow answer
+ * finishes, short enough that a wedged one does not become permanent.
+ */
+const ANSWER_TIMEOUT_MS = 180_000;
+
+/**
+ * How many answers may be in flight at once.
+ *
+ * Each one is a process. The token keeps strangers out, but it does not stop
+ * a bug — or several windows of the panel — from starting more of them than
+ * this machine should be running, and there is no natural ceiling otherwise.
+ */
+const MAX_CONCURRENT = 4;
+let active = 0;
+
+/**
  * The shared secret, because loopback is not authentication.
  *
  * Any page in the browser can `fetch('http://127.0.0.1:8787')`. It cannot
@@ -178,6 +198,18 @@ function answer(request, response) {
       return;
     }
 
+    if (active >= MAX_CONCURRENT) {
+      response.writeHead(429, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          error: {
+            message: `The bridge is already answering ${active} questions. Wait for one to finish.`,
+          },
+        }),
+      );
+      return;
+    }
+
     response.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
@@ -188,7 +220,18 @@ function answer(request, response) {
       cwd: NEUTRAL_DIR,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    active += 1;
     child.stdin.end(prompt);
+
+    let timedOut = false;
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, ANSWER_TIMEOUT_MS);
+    child.on('close', () => {
+      clearTimeout(deadline);
+      active -= 1;
+    });
 
     // The reader closed the panel or pressed stop. Without this the child
     // keeps thinking, and keeps spending, with nobody listening.
@@ -295,7 +338,9 @@ function answer(request, response) {
       sse(response, 'error', {
         type: 'error',
         error: {
-          message: `Claude Code exited with code ${code}. ${stderr.slice(0, 400)}`.trim(),
+          message: timedOut
+            ? `Claude Code did not answer within ${ANSWER_TIMEOUT_MS / 1000} seconds and was stopped.`
+            : `Claude Code exited with code ${code}. ${stderr.slice(0, 400)}`.trim(),
         },
       });
       response.end();
