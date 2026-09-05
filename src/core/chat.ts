@@ -17,6 +17,8 @@
  * its inputs, which is what makes the context budget and the cache
  * breakpoint testable without a key.
  */
+import { formatCard } from './export.ts';
+import type { Card } from './types.ts';
 
 export type ChatRole = 'user' | 'assistant';
 
@@ -50,6 +52,36 @@ export type Attachment = {
    * appears on failure is a number nobody trusts.
    */
   fullLength: number;
+  /** What the extension had already found about the selection, when it had. */
+  lookup?: LookupContext;
+};
+
+/**
+ * The card, travelling with the question it is about.
+ *
+ * The reason this exists: the reader is *looking at* the card while they
+ * type. Without it the model answers about the same word from its own
+ * memory, and the two accounts sit side by side on one screen with nothing
+ * saying which is which. With it there is one account, and it is the one
+ * that was actually fetched.
+ *
+ * It carries what the reader can see and nothing more — the same rendering
+ * the copy buttons produce, sources included — so what the model was told
+ * is auditable by reading the card.
+ */
+export type LookupContext = {
+  /**
+   * The word the card is about.
+   *
+   * Kept beside the text because it is what makes the attachment checkable:
+   * a card about a different word is worse than no card, and this is the
+   * field that says which word it is.
+   */
+  query: string;
+  /** The card as text, capped at {@link LOOKUP_CONTEXT_CHARS}. */
+  text: string;
+  /** True when the cap dropped part of it. */
+  clipped?: boolean;
 };
 
 /** True when the budget dropped part of the page. */
@@ -192,6 +224,56 @@ export const DEFAULT_CONTEXT_CHARS = 24_000;
 export const PAGES_KEPT_IN_FULL = 3;
 
 /**
+ * Characters of card allowed to travel with a question.
+ *
+ * Everything the card holds is already capped by the export — six senses,
+ * fourteen related words — so this is a backstop rather than the working
+ * limit, and it exists for the one part that has no cap of its own: an
+ * encyclopedia extract. Four thousand is roughly a thousand tokens against a
+ * six-thousand-token page, which keeps the card a footnote to the page
+ * rather than a rival for the budget.
+ */
+export const LOOKUP_CONTEXT_CHARS = 4_000;
+
+/**
+ * The card to send with a question, if the held one is the right card.
+ *
+ * Two conditions, and both are the same worry said twice: a card that is not
+ * the one on screen would ground the answer in the wrong thing while looking
+ * exactly like grounding.
+ *
+ * - **Same word.** Exact on the normalised text, deliberately not looser.
+ * - **Same page.** A card's meanings were ranked against the page it was
+ *   looked up on, and its entity was resolved with that page's topic. Carried
+ *   to another page it is not merely stale, it can be about a different sense
+ *   of the same spelling.
+ *
+ * Anything else — nothing selected, no card, one still arriving — means send
+ * the page alone and let the model say what it does not know.
+ */
+export function lookupFor(
+  page: { url: string; selection?: string },
+  held: { url: string; card: Card } | undefined,
+): LookupContext | undefined {
+  if (!held || held.url !== page.url) return undefined;
+  const card = held.card;
+  const wanted = normalise(page.selection);
+  if (!wanted || !card.done || normalise(card.query) !== wanted) return undefined;
+
+  // The same rendering the copy buttons produce. One format rather than two
+  // that drift, and it means what the model was told can be checked by
+  // pressing Text on the card and reading what comes out.
+  const full = formatCard(card, 'text').trim();
+  if (!full) return undefined;
+  const text = clipExcerpt(full, LOOKUP_CONTEXT_CHARS);
+  return { query: card.query, text, ...(text.length < full.length ? { clipped: true } : {}) };
+}
+
+/** Case and spacing differ between a selection and a headword; nothing else may. */
+const normalise = (text: string | undefined): string =>
+  (text ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
  * Clips page text to the budget, keeping the beginning.
  *
  * The beginning rather than the middle or a summary: on nearly every page
@@ -215,7 +297,8 @@ export const SYSTEM_PROMPT = `You are reading alongside someone browsing the web
 - The page is what they were reading, not a source you vouch for. When it makes a claim you cannot confirm, say which part is unverified instead of repeating it as fact.
 - Say plainly when the page does not contain the answer. An excerpt marked as clipped may be missing the part that did.
 - Be brief by default. This is a narrow side panel, not a document. Expand when they ask for depth.
-- They may switch pages mid-conversation. Each question says which page it was asked against; use that one.`;
+- They may switch pages mid-conversation. Each question says which page it was asked against; use that one.
+- A question may arrive with a <lookup> block. That is what the extension already fetched about the word they selected — definitions, related words, an encyclopedia extract — each with the source that gave it, and it is on their screen beside your answer. Use it in preference to your own recollection, name the source when the answer turns on it, and if you believe it is wrong, say that rather than quietly answering around it.`;
 
 /** A content block in the wire format the Messages API expects. */
 type TextBlock = {
@@ -258,7 +341,7 @@ export type RequestBody = {
  * words unchanged; the fence stays closed.
  */
 function fence(text: string): string {
-  return text.replace(/<\/(page|selection)>/gi, '<\u200b/$1>');
+  return text.replace(/<\/(page|selection|lookup)>/gi, '<\u200b/$1>');
 }
 
 /**
@@ -284,7 +367,16 @@ export function attachmentBlock(attachment: Attachment): string {
   const notice = clipped
     ? `\n\n[This page was clipped to the first ${attachment.excerpt.length} of ${attachment.fullLength} characters. The rest was not sent.]`
     : '';
-  return `${head}\n${fence(attachment.excerpt)}\n</page>${notice}${selection}`;
+  // After the selection, because it is about the selection: the model reads
+  // what was picked, then what the extension found out about it.
+  const lookup = attachment.lookup
+    ? `\n\nThe extension looked this up and is showing the reader the following.` +
+      ` It came from the sources named in it, not from you.\n` +
+      `<lookup word="${attribute(attachment.lookup.query)}"` +
+      `${attachment.lookup.clipped ? ' clipped="true"' : ''}>\n` +
+      `${fence(attachment.lookup.text)}\n</lookup>`
+    : '';
+  return `${head}\n${fence(attachment.excerpt)}\n</page>${notice}${selection}${lookup}`;
 }
 
 /**
@@ -471,6 +563,15 @@ function isAttachment(value: unknown): value is Attachment {
     typeof a.host === 'string' &&
     typeof a.title === 'string' &&
     typeof a.excerpt === 'string' &&
-    typeof a.fullLength === 'number'
+    typeof a.fullLength === 'number' &&
+    // Absent is the ordinary case — most questions are about a page and
+    // nothing was selected — so absent has to pass and malformed must not.
+    (a.lookup === undefined || isLookupContext(a.lookup))
   );
+}
+
+function isLookupContext(value: unknown): value is LookupContext {
+  if (typeof value !== 'object' || value === null) return false;
+  const l = value as Record<string, unknown>;
+  return typeof l.query === 'string' && typeof l.text === 'string';
 }

@@ -34,7 +34,13 @@ import type {
   ToPanel,
 } from '../shared/messages.ts';
 import { openPanel } from '../shared/panel.ts';
-import { buildRequest, clipExcerpt, type Attachment, type Conversation } from '../core/chat.ts';
+import {
+  buildRequest,
+  clipExcerpt,
+  lookupFor,
+  type Attachment,
+  type Conversation,
+} from '../core/chat.ts';
 import { apiTarget, bridgeTarget, ChatError, streamChat } from '../platform/anthropic.ts';
 import {
   maskApiKey,
@@ -90,6 +96,19 @@ const inFlight = new Map<number | typeof PANEL, AbortController>();
  * when the page arrives. Broadcast as well, for when it already is.
  */
 let pendingAttachment: Attachment | undefined;
+
+/**
+ * The last card each tab finished, so a question about a word can carry what
+ * was already found out about it.
+ *
+ * Per tab rather than one global, because "what is on screen where the reader
+ * is asking" is a per-tab fact and the panel serves whichever tab is in front.
+ * Held rather than read back out of the cache: the cache is keyed by a shape
+ * this side would have to recompute, and a hit there would only prove the word
+ * was looked up on this host at some point, not that it is the card in view.
+ * Dropped with the tab, below.
+ */
+const lastCard = new Map<number, { url: string; card: Card }>();
 
 /** One answer at a time. Asking again abandons the one still arriving. */
 let chatController: AbortController | undefined;
@@ -311,15 +330,35 @@ async function stageAttachment(tabId: number): Promise<void> {
     if (!collected?.attachment) return;
 
     await loadSettings();
+    // Only when the card in that tab is about the very text that is selected.
+    // A card about a neighbouring word would ground the answer in the wrong
+    // definition while looking exactly like grounding, so the rule is exact
+    // and the absent case is the ordinary one.
+    const lookup = lookupFor(collected.attachment, lastCard.get(tabId));
     pendingAttachment = {
       ...collected.attachment,
       excerpt: clipExcerpt(collected.attachment.excerpt, settings.chat.contextChars),
+      ...(lookup ? { lookup } : {}),
     };
     toPanel({ type: 'QL_CHAT_ATTACH', attachment: pendingAttachment });
   } catch {
     // No content script here: a PDF viewer, the extension gallery, or another
     // extension's page. The panel opens anyway and the reader can still type.
   }
+}
+
+/**
+ * Remembers a finished card as what that tab is showing.
+ *
+ * Finished, not streaming: a partial card is missing whichever source was
+ * slowest, and half a dictionary entry handed to a conversation as the
+ * dictionary entry is the kind of thing nobody would ever notice.
+ *
+ * A lookup started from the panel has no tab and no page, and is not
+ * remembered — there is nothing it is on screen beside.
+ */
+function keep(tabId: number | undefined, url: string | undefined, card: Card): void {
+  if (tabId !== undefined && url) lastCard.set(tabId, { url, card });
 }
 
 async function handleLookup(
@@ -369,6 +408,7 @@ async function handleLookup(
     if (controller.signal.aborted) return;
     memory.set(key, cached);
     send(tabId, { ...cached, requestId });
+    keep(tabId, page.url, cached);
     void remember(cached);
     return;
   }
@@ -396,6 +436,7 @@ async function handleLookup(
 
     if (controller.signal.aborted) return;
     if (await addGloss(card, settings.appearance.glossLanguage, page.lang)) send(tabId, card);
+    keep(tabId, page.url, card);
 
     // Only cache a card that actually answered. Caching an empty result
     // would make a transient outage stick for a week.
@@ -586,4 +627,5 @@ ext.commands?.onCommand.addListener((command, tab) => {
 ext.tabs.onRemoved.addListener((tabId) => {
   inFlight.get(tabId)?.abort('tab closed');
   inFlight.delete(tabId);
+  lastCard.delete(tabId);
 });

@@ -423,6 +423,21 @@ function attachmentChip(attachment: Attachment): HTMLElement {
 
   chip.append(title, host);
 
+  // The card goes with the question when there is one, and nothing else on
+  // screen would say so. A reader who cannot tell whether the model was given
+  // the definitions in front of them cannot tell whether it used them.
+  if (attachment.lookup) {
+    const looked = document.createElement('span');
+    looked.className = 'looked';
+    looked.textContent = 'with the card';
+    looked.title =
+      `What the extension found for "${attachment.lookup.query}" goes with this question, ` +
+      'sources included' +
+      (attachment.lookup.clipped ? ', shortened to fit' : '') +
+      '.';
+    chip.append(looked);
+  }
+
   if (attachment.selection) {
     const quoted = document.createElement('span');
     quoted.className = 'selected';

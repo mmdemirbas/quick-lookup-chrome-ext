@@ -136,6 +136,9 @@
         flex-basis: 100%; color: var(--soft); font-style: italic;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
+      /* Accent, not warn: this line says something extra went with the
+         question, which is the opposite of the clipped line beside it. */
+      .attachment .looked { color: var(--accent); }
       .attachment .clipped { color: var(--warn); margin-left: auto; }
       /* 24px square minimum: this is the only way to un-attach a page, and a
          6px glyph is not something a pointer lands on first time. */

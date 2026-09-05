@@ -505,6 +505,31 @@ async function checkChat(context: BrowserContext, worker: Worker, id: string): P
     chip.includes('example.com') && chip.includes('deployment time by 40%'),
     chip.replace(/\n/g, ' | '),
   );
+
+  // A card travelling with the question is the difference between an answer
+  // grounded in what the extension fetched and one from the model's memory,
+  // and the reader cannot tell which they are getting unless the chip says.
+  await worker.evaluate(() =>
+    chrome.runtime.sendMessage({
+      type: 'QL_CHAT_ATTACH',
+      attachment: {
+        url: 'https://example.com/posts/deploys',
+        host: 'example.com',
+        title: 'We cut deployment time by 40%',
+        selection: 'manifest',
+        excerpt: 'A manifest lists the data files in a snapshot.',
+        fullLength: 45,
+        lookup: { query: 'manifest', text: 'manifest (word)\n\nDefinitions:\n  1. (noun) A file listing data files.\n\nSources: FreeDictionaryAPI.com' },
+      },
+    }),
+  );
+  await panel.waitForTimeout(400);
+  const withCard = (await panel.locator('#chatAttachment').innerText()) ?? '';
+  record(
+    'the chip says when the card goes with the question',
+    /with the card/i.test(withCard),
+    withCard.replace(/\n/g, ' | '),
+  );
   record(
     'a page longer than the budget says how much of it was sent',
     /33% sent/.test(chip),
@@ -1323,6 +1348,43 @@ try {
     );
 
     console.log(`\n  Sources: ${settled.join(', ') || '(none answered)'}`);
+
+    // Whether the card travels with a chat question is decided by comparing
+    // two facts collected down different paths: the URL and selection the
+    // lookup was made with, and the URL and selection the chat collector
+    // reads a moment later. If those ever disagree — a fragment on one side,
+    // a trimmed selection on the other — the card silently never travels and
+    // the conversation quietly goes back to answering from memory. The rule
+    // itself is unit-tested; this is the check that its two inputs agree on a
+    // real page. The context-menu gesture that joins them is not scriptable,
+    // so it is the one link in the chain no suite here exercises.
+    //
+    // The tab is found by being in front rather than by URL: `tabs.query`
+    // filters on URL only with the `tabs` permission, which this extension
+    // deliberately does not ask for. The real path has the tab id handed to
+    // it by the context-menu click and needs no query at all.
+    await page.bringToFront();
+    const href = await page.evaluate(() => location.href);
+    const collected = await worker.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tab?.id === undefined) return { reached: false, why: 'no active tab' };
+      try {
+        const reply = (await chrome.tabs.sendMessage(tab.id, { type: 'QL_COLLECT_CONTEXT' })) as
+          | { attachment?: { url: string; selection?: string } }
+          | undefined;
+        return { reached: true, attachment: reply?.attachment };
+      } catch (error) {
+        return { reached: false, why: error instanceof Error ? error.message : String(error) };
+      }
+    });
+    const seen = collected.reached ? collected.attachment : undefined;
+    record(
+      'the chat collector sees the same page and selection the lookup did',
+      seen?.url === href && (seen.selection ?? '').trim().toLowerCase() === 'manifest',
+      seen
+        ? `${seen.url} "${seen.selection ?? ''}" vs ${href}`
+        : `the collector did not answer: ${collected.reached ? 'empty reply' : collected.why}`,
+    );
 
     // Copying is checked through the real clipboard rather than by asserting
     // on the string the formatter returned — the unit tests already cover the

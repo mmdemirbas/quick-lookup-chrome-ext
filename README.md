@@ -176,9 +176,19 @@ puts them on your clipboard and opens a new conversation at claude.ai to paste
 into. No key, no cost, and it works before you have set anything up — what it
 costs instead is that you leave the page to talk.
 
-Two things the panel tells you that it would be easy not to. It says which
-page each question was asked against, and **when the page was longer than the
-budget it says how much was sent** — an answer about the first third of a
+If you had looked a word up on that page and it is still selected, the card
+goes with the question too — the definitions, the related words, the extract
+and the sources, exactly as they are drawn. That is the point: you are looking
+at the card while you type, and without it the answer comes from the model's
+own memory of the word rather than from what was fetched, with nothing on
+screen to say which. The card travels only when it is about the selected text
+and was looked up on that same page; a card about a neighbouring word would
+ground the answer in the wrong meaning while looking exactly like grounding.
+The chip above the composer says **with the card** when it happens.
+
+Three things the panel tells you that it would be easy not to. It says which
+page each question was asked against, whether the card went with it, and
+**when the page was longer than the budget it says how much was sent** — an answer about the first third of a
 page is a different thing from an answer about the page. The line under the
 composer shows roughly what the thread has cost, and how much of it was
 served from cache: asking five things about one page re-sends a prefix that
