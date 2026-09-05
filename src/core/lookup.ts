@@ -9,7 +9,7 @@
  * provider that misses it leaves its slot empty rather than delaying the
  * card. A new lookup aborts everything still in flight.
  */
-import type { Card, HttpClient, LookupRequest, Provider } from './types.ts';
+import type { Card, HttpClient, LookupRequest, Provider, ProviderContext } from './types.ts';
 import type { PackLookup } from './packs.ts';
 import type { Decision } from './intent/router.ts';
 import { applyResult, createCard, finalise } from './card.ts';
@@ -127,5 +127,39 @@ export async function runLookup(
   finalise(card, rankingContext(request));
   card.elapsedMs = now() - started;
   options.onUpdate?.(card);
+  return card;
+}
+
+/** Handed to providers that must not fetch. A page has no business doing so. */
+const noNetwork: HttpClient = {
+  json: () => Promise.reject(new Error('No network from the page.')),
+};
+
+/**
+ * The card as it can be drawn before the worker has been asked anything.
+ *
+ * Two providers need nothing but the page: the page itself and the quick
+ * links. Answered here, the sentence the reader met the word in is on screen
+ * the moment the card is — and not after the service worker has started,
+ * which on a first run after install measured 15 seconds between the
+ * message leaving the page and the worker receiving it. Everything else
+ * stays pending, and the worker's card replaces this one as it arrives.
+ */
+export async function localCard(request: LookupRequest, decision: Decision): Promise<Card> {
+  const card = createCard(request.id, request.text, decision.intent);
+  const context: ProviderContext = {
+    http: noNetwork,
+    signal: new AbortController().signal,
+    uiLang: request.uiLang,
+  };
+  for (const provider of [pageProvider, makeLinksProvider(decision.intent)]) {
+    try {
+      const result = await provider.run(request, context);
+      if (result) applyResult(card, provider.id, result);
+    } catch {
+      // Local, so there is nothing to wait for and nothing to say: the slot
+      // stays pending for the worker to fill.
+    }
+  }
   return card;
 }

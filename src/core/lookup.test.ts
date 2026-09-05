@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rankingContext, runLookup, selectProviders } from './lookup.ts';
+import { localCard, rankingContext, runLookup, selectProviders } from './lookup.ts';
 import type { HttpClient, LookupRequest, Provider } from './types.ts';
 import type { Decision } from './intent/router.ts';
 
@@ -145,4 +145,29 @@ test('ranking context excludes the selected word itself', () => {
   );
   assert.ok(!context.includes('planner'), 'the selection cannot be its own context');
   assert.ok(context.includes('iceberg'));
+});
+
+test('the page answers before anything is asked of the network', async () => {
+  // Drawn by the content script before the worker is messaged, so it must
+  // come out the same with or without a network: the only providers it runs
+  // are the two that need nothing but the page.
+  const card = await localCard(
+    request({
+      text: 'manifest',
+      page: {
+        sentence: 'A manifest lists the data files of a snapshot.',
+        definitions: ['A manifest is a metadata file that lists data files.'],
+      },
+    }),
+    decision('technical'),
+  );
+
+  assert.deepEqual(card.sources, ['page', 'links']);
+  assert.equal(card.slots.onPage?.state, 'filled');
+  assert.equal(card.slots.inContext?.state, 'filled');
+  assert.equal(card.slots.inContext?.data?.term, 'manifest');
+  assert.equal(card.done, false, 'the worker still has the rest to fill');
+
+  const pending = Object.values(card.slots).filter((slot) => slot?.state === 'pending');
+  assert.ok(pending.length > 0, 'everything the worker owns is still pending');
 });

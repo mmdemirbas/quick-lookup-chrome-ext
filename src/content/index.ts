@@ -8,7 +8,12 @@
  */
 import { DEFAULT_SETTINGS, mergeSettings, triggerModeFor, type Settings } from '../core/settings.ts';
 import { DismissalTracker, decideTrigger, selectionFacts } from '../core/trigger.ts';
-import type { Card } from '../core/types.ts';
+import type { Card, LookupRequest } from '../core/types.ts';
+import { finalise } from '../core/card.ts';
+import { extractSignals } from '../core/intent/signals.ts';
+import { routeIntent } from '../core/intent/router.ts';
+import { localCard } from '../core/lookup.ts';
+import { uiLanguage } from '../platform/ai.ts';
 import { ext } from '../platform/browser.ts';
 import { CardView } from './card-view.ts';
 import { SelectionHandle } from './handle.ts';
@@ -237,12 +242,82 @@ function startLookup(
     pinned.filter((other) => other !== view).flatMap((other) => other.box() ?? []),
   );
 
+  // What the page can answer on its own, drawn before the worker is asked.
+  // The worker's card replaces it as it arrives; a request that never comes
+  // back leaves this one, settled, rather than a skeleton.
+  //
+  // The query and the language are derived exactly as the worker derives
+  // them, and not merely equivalently. A different string routes to a
+  // different intent, an intent chooses the slot order, and the card would
+  // then visibly reshuffle the moment the worker's answer landed.
+  // Captured, not read at timeout: `openedAt` belongs to whichever lookup
+  // ran last, and the timer below fires seconds later.
+  const startedAt = openedAt;
+  const trimmed = text.slice(0, settings.limits.maxSelectionChars);
+  const lang = uiLanguage().split('-')[0] || 'en';
+  const request: LookupRequest = { id: requestId, text: trimmed, uiLang: lang, page };
+  const local = localCard(request, routeIntent(extractSignals(trimmed, page), lang));
+  void local.then((card) => {
+    if (view.isOpen && view.requestId === requestId) view.render(card);
+  });
+
   void ext.runtime
     .sendMessage({ type: 'QL_LOOKUP', requestId, text, page })
     .catch(() => {
-      // The service worker was asleep and the message was dropped. The next
-      // selection will wake it; nothing useful can be shown for this one.
+      // Not "the worker was asleep". A message to a sleeping worker starts
+      // it and is delivered — on a first run after install that took 15
+      // seconds, which is what the local card above is for. A rejection
+      // means nothing was listening at all, so this is all the lookup gets.
+      settleLocally(view, requestId, local, startedAt);
     });
+
+  // A worker that never answers — a lost message, a worker that will not
+  // start — must not leave the skeletons up for good. Its own budget, plus
+  // room for the round trip, is how long they are worth waiting on.
+  awaiting.set(
+    requestId,
+    setTimeout(() => {
+      awaiting.delete(requestId);
+      settleLocally(view, requestId, local, startedAt);
+    }, settings.limits.timeoutMs + SETTLE_GRACE_MS),
+  );
+}
+
+/**
+ * The settle timer of each lookup still waiting on the worker.
+ *
+ * A map rather than a set of ids that have answered, so every entry leaves by
+ * one of exactly two doors — the worker answered, or the timer fired. A set
+ * of answered ids kept anything the worker replied to after its own timer had
+ * already run, which is a small leak that never ends.
+ */
+const awaiting = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** How much longer than the worker's own budget the page waits before settling. */
+const SETTLE_GRACE_MS = 3000;
+
+/**
+ * Marks the still-pending slots of the local card as unavailable, in place.
+ *
+ * The elapsed time is set here rather than left at zero: `finalise` is what
+ * makes a card `done`, and a done card prints how long it took. A card that
+ * waited seven seconds for a worker that never answered would otherwise
+ * claim it had taken none.
+ */
+function settleLocally(
+  view: CardView,
+  requestId: string,
+  local: Promise<Card>,
+  startedAt: number,
+): void {
+  void local.then((card) => {
+    // Open, and still this lookup. Rendering re-creates the host if it has
+    // gone, so a settle firing seconds after the reader pressed Escape would
+    // otherwise put a dismissed card back on the page.
+    if (!view.isOpen || view.requestId !== requestId) return;
+    card.elapsedMs = Date.now() - startedAt;
+    view.render(finalise(card));
+  });
 }
 
 /** Runs after the dwell, if nothing has cancelled it in the meantime. */
@@ -408,7 +483,13 @@ ext.runtime.onMessage.addListener((message: ToContent, _sender, sendResponse) =>
       // it and not in whatever the reader has selected since.
       const owner = allCards().find((view) => view.requestId === incoming.requestId);
       // No owner is a late answer for a lookup that has been superseded.
-      owner?.render(incoming);
+      if (!owner) return;
+      const timer = awaiting.get(incoming.requestId);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        awaiting.delete(incoming.requestId);
+      }
+      owner.render(incoming);
       return;
     }
     case 'QL_TRIGGER_LOOKUP': {

@@ -891,6 +891,18 @@ export class CardView {
   }
 
   render(card: Card): void {
+    // A card for the same lookup never goes backwards. The page draws what
+    // it can answer itself before the worker is asked, and the worker's
+    // first emit is empty: drawing that one would blank the sentence for the
+    // few milliseconds until the next emit, and a reader sees that as a
+    // flicker. Sources only ever accumulate, so fewer of them means older.
+    if (
+      this.#current?.requestId === card.requestId &&
+      card.sources.length < this.#current.sources.length
+    ) {
+      return;
+    }
+
     this.#ensure();
     if (!this.#title || !this.#body || !this.#intent || !this.#footer) return;
 
