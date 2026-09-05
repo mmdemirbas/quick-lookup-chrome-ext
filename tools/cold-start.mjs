@@ -1,21 +1,29 @@
 /**
- * How long after a cold start is a card still empty?
+ * How long after a cold start is a card still empty — and why?
  *
  * The browser suite went red about one run in two on checks that read slots
  * off the first card, and "flaky" was as far as reading got. This is what
- * turned it into a number: repeat only the first selection, on a fresh
- * profile, and report what the card held each time.
+ * turned it into numbers, and then into a cause: repeat the first selection
+ * on a fresh profile and report what the card held, and when.
  *
- * Two measurements, because the interesting question is not how long it takes
- * but whether a card that is empty at 2.5s is *late* or *lost*:
+ * Four measurements, because each answers a different question:
  *
- *   repeat  — one selection per fresh page, sampled once at 2.5s
- *   watch   — one selection, watched second by second to 40s
+ *   repeat  — one selection per fresh page, sampled once at 2.5s.
+ *             Is the first card empty at all?
+ *   watch   — one selection, watched second by second to 40s.
+ *             Is an empty card late, or lost?
+ *   first   — three fresh profiles, the page's own answer polled every 20ms.
+ *             How soon is the sentence the reader met the word in on screen?
+ *   wake    — the worker stopped over the DevTools protocol, then a lookup.
+ *             What does a lookup cost after Chrome has idled the worker out?
+ *             Playwright's attached session keeps a worker alive, so waiting
+ *             for the idle timeout measures nothing; stopping it is the only
+ *             way to reach that state from here.
  *
- * Run with `node tools/cold-start.mjs [repeat|watch]` after `npm run build`.
- * Nothing here asserts; it prints. The suite is where assertions live — this
- * exists so the next person to see that flake can re-measure in one command
- * instead of re-deriving the method.
+ * Run with `node tools/cold-start.mjs [repeat|watch|first|wake]` after
+ * `npm run build`. Nothing here asserts; it prints. The suite is where
+ * assertions live — this exists so the next person to see that flake can
+ * re-measure in one command instead of re-deriving the method.
  */
 import { chromium } from 'playwright';
 import http from 'node:http';
@@ -36,7 +44,8 @@ together with their partition values and per-column statistics.</p></body></html
 /** What the card is holding right now, read from its shadow root. */
 const readCard = () => {
   const root = document.querySelector('quick-lookup-card')?.shadowRoot;
-  if (!root) return { card: false, pending: 0, sections: [], sources: [] };
+  if (!root) return { card: false, pending: 0, sections: [], sources: [], onPage: false };
+  const sections = [...root.querySelectorAll('section')];
   return {
     card: true,
     pending: root.querySelectorAll('section.pending').length,
@@ -44,6 +53,7 @@ const readCard = () => {
     sources: [...root.querySelectorAll('footer .source > span:not(.mark)')].map(
       (el) => el.textContent ?? '',
     ),
+    onPage: sections.some((section) => /On this page/.test(section.textContent ?? '')),
   };
 };
 
@@ -53,6 +63,33 @@ async function selectManifest(page, origin) {
     .locator('p', { hasText: 'A manifest is a metadata file' })
     .first()
     .dblclick({ position: { x: 20, y: 10 } });
+}
+
+/**
+ * Milliseconds from the double-click until the page's own answer is drawn,
+ * polled finely enough that the number means something.
+ */
+async function timeToPageAnswer(page, origin, cap = 20_000) {
+  await selectManifest(page, origin);
+  const clicked = Date.now();
+  for (;;) {
+    const state = await page.evaluate(readCard);
+    const elapsed = Date.now() - clicked;
+    if (state.onPage) return elapsed;
+    if (elapsed > cap) return -1;
+    await page.waitForTimeout(20);
+  }
+}
+
+async function launch() {
+  // Fresh, or the first lookup is not a first lookup: Chrome keeps the
+  // registered service worker of an extension already in the profile.
+  await rm(PROFILE, { recursive: true, force: true });
+  return chromium.launchPersistentContext(PROFILE, {
+    channel: 'chromium',
+    headless: process.env.HEADED !== '1',
+    args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`],
+  });
 }
 
 async function main() {
@@ -65,16 +102,45 @@ async function main() {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}/`;
 
-  // Fresh, or the first lookup is not a first lookup: Chrome keeps the
-  // registered service worker of an extension already in the profile.
-  await rm(PROFILE, { recursive: true, force: true });
-  const context = await chromium.launchPersistentContext(PROFILE, {
-    channel: 'chromium',
-    headless: process.env.HEADED !== '1',
-    args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`],
-  });
+  if (mode === 'first') {
+    for (let run = 1; run <= 3; run += 1) {
+      const context = await launch();
+      const page = await context.newPage();
+      const ms = await timeToPageAnswer(page, origin);
+      console.log(`fresh profile, run ${run}: page's own answer drawn at ${ms < 0 ? 'never (20s cap)' : `${ms} ms`}`);
+      await context.close();
+    }
+  } else if (mode === 'wake') {
+    const context = await launch();
+    const page = await context.newPage();
+    console.log('fresh profile        :', await timeToPageAnswer(page, origin), 'ms');
+    console.log('warm                 :', await timeToPageAnswer(page, origin), 'ms');
 
-  if (mode === 'watch') {
+    // Stop the worker the way Chrome would after thirty seconds idle.
+    const cdp = await context.newCDPSession(page);
+    const versions = new Map();
+    cdp.on('ServiceWorker.workerVersionUpdated', (event) => {
+      for (const version of event.versions) versions.set(version.versionId, version);
+    });
+    await cdp.send('ServiceWorker.enable');
+    await page.waitForTimeout(500);
+    for (const version of versions.values()) {
+      if (/^chrome-extension:/.test(version.scriptURL)) {
+        await cdp.send('ServiceWorker.stopWorker', { versionId: version.versionId });
+      }
+    }
+    await page.waitForTimeout(1000);
+    const status = [...versions.values()]
+      .filter((version) => /^chrome-extension:/.test(version.scriptURL))
+      .map((version) => version.runningStatus);
+    console.log('worker after stop    :', status.join(', ') || 'not listed');
+    await cdp.detach();
+
+    console.log('after the stop       :', await timeToPageAnswer(page, origin), 'ms');
+    console.log('warm again           :', await timeToPageAnswer(page, origin), 'ms');
+    await context.close();
+  } else if (mode === 'watch') {
+    const context = await launch();
     const page = await context.newPage();
     await selectManifest(page, origin);
     const clicked = Date.now();
@@ -88,7 +154,9 @@ async function main() {
       }
       await page.waitForTimeout(1000);
     }
+    await context.close();
   } else {
+    const context = await launch();
     for (let i = 0; i < 14; i += 1) {
       const page = await context.newPage();
       await selectManifest(page, origin);
@@ -103,9 +171,9 @@ async function main() {
       );
       await page.close();
     }
+    await context.close();
   }
 
-  await context.close();
   server.close();
 }
 

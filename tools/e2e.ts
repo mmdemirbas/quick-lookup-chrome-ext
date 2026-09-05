@@ -568,11 +568,19 @@ async function checkChat(context: BrowserContext, worker: Worker, id: string): P
     }
   };
   const opened = await claudeTab();
-  record(
-    'handing off a real question opens claude.ai',
-    Boolean(opened),
-    opened?.url() ?? `no claude.ai tab among ${context.pages().length} after 10s`,
-  );
+  if (OFFLINE) {
+    // The outage is made at the resolver, so claude.ai has no address and the
+    // tab Chrome opens for it does not survive to be found. This check is
+    // about reaching an external site, so under a deliberate outage it has
+    // not run rather than failed.
+    skip('handing off a real question opens claude.ai', 'the host was blocked by E2E_OFFLINE');
+  } else {
+    record(
+      'handing off a real question opens claude.ai',
+      Boolean(opened),
+      opened?.url() ?? `no claude.ai tab among ${context.pages().length} after 10s`,
+    );
+  }
   await opened?.close();
 
   // Dropping the page must leave the question intact: asking the same thing
@@ -637,8 +645,9 @@ async function checkChatState(
       };
     });
 
-  // Stop before a single word arrives.
-  await panel.fill('#chatInput', 'Something to interrupt');
+  // Stop before a single word arrives. The marker holds the stub's first
+  // frame so that is what happens, rather than what usually happens.
+  await panel.fill('#chatInput', 'HOLD-OFF Something to interrupt');
   await panel.click('#chatSend');
   await panel.waitForFunction(
     () => document.querySelector('#chatSend')?.textContent === 'Stop',
@@ -1065,6 +1074,13 @@ const server = http.createServer((request, response) => {
       // its own path from a configured base, so a query string put on that
       // base lands mid-path and never reaches here.
       const cut = asked.includes('CUT-THIS-OFF');
+      // A question that will be answered, but not yet. "Stop before a single
+      // word arrives" is otherwise a race against the 300ms tick: on a loaded
+      // machine the round trip from Send to Stop outran it, a word arrived,
+      // and the check called the extension broken for keeping text it was
+      // right to keep. Holding the first frame makes the premise true by
+      // construction instead of by luck.
+      const hold = asked.includes('HOLD-OFF') ? 5_000 : 0;
       response.writeHead(200, { 'Content-Type': 'text/event-stream' });
       const frame = (event: string, data: unknown) =>
         response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -1075,20 +1091,26 @@ const server = http.createServer((request, response) => {
         },
       });
       let sent = 0;
-      const timer = setInterval(() => {
-        if (response.writableEnded) return clearInterval(timer);
-        frame('content_block_delta', {
-          type: 'content_block_delta',
-          delta: { type: 'text_delta', text: `word${(sent += 1)} ` },
-        });
-        // Ends without a `message_stop`, which is what a dropped connection
-        // looks like from the client's side.
-        if (cut) {
-          clearInterval(timer);
-          response.end();
-        }
-      }, 300);
-      response.on('close', () => clearInterval(timer));
+      let timer: ReturnType<typeof setInterval> | undefined;
+      const opening = setTimeout(() => {
+        timer = setInterval(() => {
+          if (response.writableEnded) return clearInterval(timer);
+          frame('content_block_delta', {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: `word${(sent += 1)} ` },
+          });
+          // Ends without a `message_stop`, which is what a dropped connection
+          // looks like from the client's side.
+          if (cut) {
+            clearInterval(timer);
+            response.end();
+          }
+        }, 300);
+      }, hold);
+      response.on('close', () => {
+        clearTimeout(opening);
+        clearInterval(timer);
+      });
     });
     return;
   }
@@ -1120,7 +1142,20 @@ try {
     // it happen, which is the fastest way to understand a failure here.
     channel: 'chromium',
     headless: process.env.E2E_HEADED !== '1',
-    args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`],
+    args: [
+      `--disable-extensions-except=${EXTENSION}`,
+      `--load-extension=${EXTENSION}`,
+      // The outage is made at the resolver, not at the request. Aborting
+      // routes from the context was tried first and is the wrong layer: it
+      // covers the pages Playwright is attached to, and the tab the
+      // extension opens for a handoff still reached its host. Every name
+      // but the fixture's now fails to resolve — for pages, for the
+      // service worker, for tabs the extension opens — and nothing has to
+      // remember to be blocked.
+      ...(OFFLINE
+        ? ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost']
+        : []),
+    ],
   });
 
   // The worker may already be running, or may still be starting.
@@ -1135,11 +1170,6 @@ try {
   worker.on('console', (message) => {
     if (message.type() === 'error') workerErrors.push(message.text());
   });
-
-  if (OFFLINE) {
-    // Everything except the fixture host and the extension's own pages.
-    await context.route(/^https?:\/\/(?!127\.0\.0\.1)/, (route) => route.abort());
-  }
 
   const page = await context.newPage();
   const pageErrors: string[] = [];
@@ -1167,6 +1197,27 @@ try {
   if (appeared) {
     const headword = (await page.locator('quick-lookup-card header .query').textContent()) ?? '';
     record('the card names what was selected', /manifest/i.test(headword), `query=${headword}`);
+
+    // Read at first paint, before anything below waits. The page's own
+    // answer is drawn by the content script before the worker is asked, so
+    // it is there whether or not the worker has started — and on a first run
+    // after install the worker measured 15 seconds away.
+    const firstPaint = await page.evaluate(() => {
+      const root = document.querySelector('quick-lookup-card')?.shadowRoot;
+      return {
+        onPage: [...(root?.querySelectorAll('section') ?? [])].some((s) =>
+          /On this page/.test(s.textContent ?? ''),
+        ),
+        sources: [...(root?.querySelectorAll('footer .source > span:not(.mark)') ?? [])].map(
+          (s) => s.textContent ?? '',
+        ),
+      };
+    });
+    record(
+      'the page answers before the worker does',
+      firstPaint.onPage,
+      `sources at first paint: [${firstPaint.sources.join(', ')}]`,
+    );
 
     // Wait for the card to stop being empty before asserting on what is in
     // it. A cold service worker measured 4s from the double-click to the
@@ -1400,15 +1451,33 @@ try {
     record('the card offers a way to copy itself', offersCopy);
 
     if (offersCopy) {
+      // Recorded in the page rather than sampled from here. The button says
+      // so for 1.4s and then puts its name back, so any check that goes and
+      // looks is racing that window — on a loaded machine the round trip
+      // arrived after the label had gone and reported a copy that had in
+      // fact happened as one that had not. A deadline does not fix that: the
+      // observation itself starts late. An observer installed before the
+      // click cannot miss it, and it keeps the original claim by recording
+      // the most buttons that ever said so at once, which must be one.
+      await page.evaluate(() => {
+        const root = document.querySelector('quick-lookup-card')?.shadowRoot;
+        const store = window as unknown as { __qlFlash?: number };
+        store.__qlFlash = 0;
+        if (!root) return;
+        new MutationObserver(() => {
+          const saying = root.querySelectorAll('button.chip[data-state="done"]').length;
+          store.__qlFlash = Math.max(store.__qlFlash ?? 0, saying);
+        }).observe(root, { subtree: true, attributes: true, attributeFilter: ['data-state'] });
+      });
       await copyMarkdown.click();
       const copied = await readClipboard();
-      const said = await page
-        .locator('quick-lookup-card button.chip[data-state="done"]')
-        .count();
+      const said = await page.evaluate(
+        () => (window as unknown as { __qlFlash?: number }).__qlFlash ?? 0,
+      );
       record(
         'the copy button puts markdown on the clipboard and says so',
         said === 1 && copied.startsWith('## manifest'),
-        copied ? `${copied.split('\n')[0]} (${copied.length} chars)` : 'clipboard was empty',
+        `${said} button(s) said so; ${copied ? `${copied.split('\n')[0]} (${copied.length} chars)` : 'clipboard was empty'}`,
       );
 
       // The card never takes focus, so the keyboard route is the only one a
