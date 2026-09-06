@@ -43,7 +43,10 @@ const fields = {
 for (const model of MODELS) {
   const option = document.createElement('option');
   option.value = model.id;
-  option.textContent = `${model.label} — $${model.inputPrice} in / $${model.outputPrice} out per million tokens`;
+  // The unit is said once, in the hint beside the control. Repeating it in
+  // every option made the select three times wider than any other on the
+  // page, which is what set the whole column ragged.
+  option.textContent = `${model.label} — $${model.inputPrice} / $${model.outputPrice}`;
   fields.chatModel.append(option);
 }
 
@@ -311,8 +314,8 @@ function renderStatus(status: StatusResponse): void {
   // use — a translator can be present with no language pair downloaded. The
   // row above reports the readiness, so this must not claim it.
   headline.textContent = abilities.length
-    ? `This browser provides: ${abilities.join(', ')}.`
-    : 'This browser provides no on-device translator.';
+    ? `This browser can ${abilities.join(' and ')} on its own.`
+    : 'This browser has no on-device translator.';
 
   const reason = document.createElement('div');
   reason.textContent = capabilities.reason;

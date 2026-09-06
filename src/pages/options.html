@@ -47,6 +47,7 @@
       }
       legend { padding: 0 8px; font-weight: 600; font-size: 13px; }
       .row {
+        --control: 250px;
         display: flex; align-items: center; gap: 16px;
         padding: 11px 0; border-top: 1px solid var(--border);
       }
@@ -56,9 +57,18 @@
       select, input[type="number"] {
         background: var(--bg); color: var(--text);
         border: 1px solid var(--border); border-radius: 8px;
-        padding: 6px 9px; font: inherit; min-width: 130px;
+        padding: 6px 9px; font: inherit;
       }
       input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent); }
+      /* One column track for the controls, so a reader scanning down the page
+         reads one column rather than re-finding each field on every line.
+         They were packed to their content and started at twelve different
+         x positions, from 542 to 921. A checkbox keeps its own size and sits
+         at the head of the track like everything else. */
+      .row > select,
+      .row > input:not([type="checkbox"]),
+      .row > button { flex: 0 0 var(--control); width: var(--control); }
+      .row > input[type="checkbox"] { flex: 0 0 var(--control); }
       button {
         background: var(--accent); color: #fff; border: 0;
         border-radius: 8px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer;
@@ -144,7 +154,7 @@
         <div class="row">
           <label for="maxWords">
             Longest selection that opens the card
-            <span class="hint">Longer selections show the handle instead.</span>
+            <span class="hint">In words. Longer selections show the handle instead.</span>
           </label>
           <input id="maxWords" type="number" min="1" max="60" />
         </div>
@@ -183,10 +193,10 @@
           <label for="translationService">
             Which service
             <span class="hint">
-              Google is the endpoint its own web page calls: no key, no allowance to run
-              out, better Turkish — and undocumented, so it can stop working without
-              notice. MyMemory is documented and stable but allows 5,000 characters a day.
-              Automatic tries Google first and falls back.
+              Automatic tries Google and falls back to MyMemory. Google needs no key
+              and has no daily allowance, but it is undocumented and can stop working
+              without notice. MyMemory is documented and stable, and allows 5,000
+              characters a day.
             </span>
           </label>
           <select id="translationService">
@@ -235,10 +245,16 @@
           at all is sent while no key is stored.
         </p>
         <div class="row">
-          <label for="chatBackend">Answered by</label>
+          <label for="chatBackend">
+            Answered by
+            <span class="hint">
+              The API works anywhere, is metered, and needs a key. The bridge uses
+              Claude Code on this machine and needs it running.
+            </span>
+          </label>
           <select id="chatBackend">
-            <option value="api">Anthropic API — works anywhere, metered, needs a key</option>
-            <option value="bridge">Local bridge — uses Claude Code on this machine</option>
+            <option value="api">Anthropic API</option>
+            <option value="bridge">Local bridge</option>
           </select>
         </div>
         <div class="row">
@@ -269,7 +285,10 @@
           anything on this machine.
         </p>
         <div class="row">
-          <label for="chatModel">Model for new conversations</label>
+          <label for="chatModel">
+            Model for new conversations
+            <span class="hint">Input and output price, per million tokens.</span>
+          </label>
           <select id="chatModel"></select>
         </div>
         <div class="row">

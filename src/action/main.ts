@@ -92,6 +92,10 @@ void (async () => {
   const host = await currentHost();
   if (!host || !siteSelect) {
     if (siteSelect) siteSelect.disabled = true;
+    // Otherwise the row reads "This site: …" beside a control nothing can
+    // explain. There is no site: the popup was opened over a new tab, a
+    // settings page, or the store.
+    if (siteLabel) siteLabel.textContent = 'no page to look things up on';
     return;
   }
   // Into the span, not over the label. Replacing the whole label left the
