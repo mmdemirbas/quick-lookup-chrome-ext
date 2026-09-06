@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyResult, createCard, finalise, layoutFor, rankSenses, withoutLead } from './card.ts';
+import {
+  applyResult,
+  createCard,
+  finalise,
+  layoutFor,
+  onePerDialect,
+  rankSenses,
+  withoutLead,
+} from './card.ts';
 import type { Sense } from './types.ts';
 
 const sense = (definition: string, source: string, example?: string): Sense => ({
@@ -207,4 +215,80 @@ test('finalise fills the gloss from the lead sense and empties the rest', () => 
   assert.equal(card.slots.gloss?.data, 'Lasting a short time.');
   assert.equal(card.slots.pronunciation?.state, 'empty');
   assert.equal(card.done, true);
+});
+
+test('a slot no layout planned for does not leak into the next card', () => {
+  // `layoutFor` used to hand out the layout table's own array, and
+  // `applyResult` appends to `card.order` for a slot the layout did not
+  // anticipate — so one entity lookup that also fetched word data rewrote
+  // LAYOUT.entity for the life of the worker, and every later entity card
+  // was built with slots no provider would fill.
+  const before = layoutFor('entity');
+
+  const card = createCard('1', 'Mercury', 'entity');
+  applyResult(card, 'free-dictionary', {
+    slots: { headword: 'Mercury', senses: [{ definition: 'A planet.', source: 'fd' }] },
+  });
+
+  assert.ok(card.order.includes('headword'), 'this card gained the slot it was given');
+  assert.deepEqual(layoutFor('entity'), before, 'the table is unchanged');
+  assert.notEqual(layoutFor('entity'), card.order, 'and is not the same array');
+  assert.deepEqual(createCard('2', 'Paris', 'entity').order, before, 'so the next card is clean');
+});
+
+test('one pronunciation per dialect, because the reader asked how to say it once', () => {
+  // The dictionary answers per entry, so a word with a noun entry and an
+  // adjective entry came back with two UK transcriptions a schwa apart and
+  // the card printed both.
+  assert.deepEqual(
+    onePerDialect([
+      { ipa: '/ˈmæn.ɪ.fest/', dialect: 'UK' },
+      { ipa: '/ˈmæn.ə.fest/', dialect: 'UK' },
+      { ipa: '/ˈmæn.ə.fest/', dialect: 'US' },
+    ]),
+    [
+      { ipa: '/ˈmæn.ɪ.fest/', dialect: 'UK' },
+      { ipa: '/ˈmæn.ə.fest/', dialect: 'US' },
+    ],
+  );
+
+  assert.deepEqual(
+    onePerDialect([{ ipa: '/a/' }, { ipa: '/b/' }]),
+    [{ ipa: '/a/' }],
+    'two unlabelled transcriptions answer the same question',
+  );
+});
+
+test('the page does not print the same sentence under two headings', () => {
+  // Looking a word up in the sentence that defines it is the ordinary case,
+  // and the card showed that sentence twice: once as what the page says,
+  // once as where the word was met.
+  const met = 'A manifest is a metadata file that lists the data files.';
+  const card = createCard('1', 'manifest', 'word');
+  applyResult(card, 'page', {
+    slots: {
+      onPage: [met],
+      inContext: { before: 'A ', term: 'manifest', after: ' is a metadata file that lists the data files.' },
+    },
+  });
+
+  finalise(card);
+
+  assert.equal(card.slots.onPage?.state, 'filled', 'the higher block keeps it');
+  assert.equal(card.slots.inContext?.state, 'empty', 'the lower one goes');
+});
+
+test('a different sentence keeps both', () => {
+  const card = createCard('1', 'manifest', 'word');
+  applyResult(card, 'page', {
+    slots: {
+      onPage: ['A manifest is a metadata file.'],
+      inContext: { before: 'Each ', term: 'manifest', after: ' belongs to a snapshot.' },
+    },
+  });
+
+  finalise(card);
+
+  assert.equal(card.slots.onPage?.state, 'filled');
+  assert.equal(card.slots.inContext?.state, 'filled');
 });

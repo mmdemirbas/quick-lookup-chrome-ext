@@ -59,8 +59,19 @@ const LAYOUT: Record<Intent, SlotId[]> = {
   unknown: ['gloss', 'onPage', 'extract', 'entity', 'inContext', 'links'],
 };
 
+/**
+ * The slot order for an intent, as a copy.
+ *
+ * A copy because `applyResult` appends to `card.order` when a provider fills
+ * a slot the layout did not anticipate, and handing out the table's own
+ * array meant that append rewrote the table itself for the life of the
+ * worker. One `Mercury` lookup — entity, with `word` fetched alongside —
+ * added `headword` and `senses` to `LAYOUT.entity`, and every later entity
+ * card was built with two slots no provider would fill, drawn below the
+ * links as empty rows.
+ */
 export function layoutFor(intent: Intent): SlotId[] {
-  return LAYOUT[intent] ?? LAYOUT.unknown;
+  return [...(LAYOUT[intent] ?? LAYOUT.unknown)];
 }
 
 export function createCard(requestId: string, query: string, intent: Intent): Card {
@@ -171,7 +182,7 @@ function mergeSlot<K extends SlotId>(
         ...(existing as SlotData['pronunciation']),
         ...(incoming as SlotData['pronunciation']),
       ];
-      return dedupeBy(merged, (p) => p.ipa ?? p.audio ?? '') as SlotData[K];
+      return onePerDialect(merged) as SlotData[K];
     }
     case 'extract': {
       const held = existing as SlotData['extract'];
@@ -194,6 +205,19 @@ function mergeSlot<K extends SlotId>(
 }
 
 /** Applies a provider result to a card in place and returns the card. */
+/**
+ * One transcription per dialect, first one kept.
+ *
+ * The dictionary answers per entry, so a word with a noun entry and an
+ * adjective entry comes back with two UK pronunciations that differ by a
+ * schwa. Deduplicating by the transcription kept both, and the card printed
+ * `UK /ˈmæn.ɪ.fest/ UK /ˈmæn.ə.fest/`. The reader asked how to say the word;
+ * two answers to that is worse than one.
+ */
+export function onePerDialect(list: SlotData['pronunciation']): SlotData['pronunciation'] {
+  return dedupeBy(list, (p) => p.dialect ?? '');
+}
+
 export function applyResult(card: Card, providerId: string, result: ProviderResult): Card {
   for (const [key, value] of Object.entries(result.slots)) {
     const id = key as SlotId;
@@ -212,6 +236,11 @@ export function applyResult(card: Card, providerId: string, result: ProviderResu
 
 /** Below this a summary adds nothing worth its own heading. */
 const MIN_EXTRACT_CHARS = 40;
+
+/** Two sentences a reader would call the same one. */
+function sameSentence(a: string, b: string): boolean {
+  return normalise(a) === normalise(b);
+}
 
 /** Words only, so punctuation and the ellipsis from truncation do not count. */
 function normalise(text: string): string {
@@ -253,6 +282,20 @@ export function finalise(card: Card, context: string[] = []): Card {
       if (lead) card.slots.gloss = { id: 'gloss', state: 'filled', data: lead.definition };
     }
   }
+  // The page speaks once.
+  //
+  // "On this page" is a sentence the page uses to define the word, and
+  // "Where you met it" is the sentence the selection sat in. Looking a word
+  // up in the sentence that defines it is the ordinary case, not a corner —
+  // and the card then printed that sentence twice, under two headings, one
+  // above the other. The higher block keeps it, with the word marked inside
+  // it, so nothing the lower one carried is lost.
+  const met = card.slots.inContext?.data;
+  const onPage = card.slots.onPage?.data;
+  if (met && onPage?.some((sentence) => sameSentence(sentence, met.before + met.term + met.after))) {
+    setSlot(card, 'inContext', 'empty');
+  }
+
   // A summary that opens with the gloss shows only what it adds; one that
   // is the gloss and nothing more is dropped.
   const gloss = card.slots.gloss?.data;

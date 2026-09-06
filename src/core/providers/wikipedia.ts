@@ -328,7 +328,12 @@ export const wikipediaProvider: Provider = {
     // The biased search either found nothing or found something unrelated to
     // the page. Either way the bias misfired, so ask again without it.
     if (!chosen || chosen.score < MIN_BIAS_SCORE) {
-      chosen = chooseCandidate(await search(query), topicTerms, query);
+      // Kept unless the retry beats it. A plain assignment threw away an
+      // article already in hand whenever the second request was refused —
+      // and this endpoint answers 429 readily — so a lookup that had found
+      // "Parquet (file format)" returned nothing at all.
+      const again = chooseCandidate(await search(query), topicTerms, query);
+      if (again && (!chosen || again.score >= chosen.score)) chosen = again;
     }
 
     const candidate = chosen?.candidate;

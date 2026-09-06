@@ -7,6 +7,7 @@
  */
 import type { Provider, ProviderResult, Related, Sense } from '../types.ts';
 import { dedupeBy, truncate } from '../text.ts';
+import { onePerDialect } from '../card.ts';
 
 const SOURCE = 'freedictionaryapi.com';
 
@@ -94,7 +95,12 @@ export const freeDictionaryProvider: Provider = {
     const wantsTranslations = Boolean(target) && target !== lang;
     const url =
       `https://freedictionaryapi.com/api/v1/entries/${encodeURIComponent(lang)}` +
-      `/${encodeURIComponent(request.text.toLowerCase())}` +
+      // Trimmed, like every sibling provider does. A drag-selection or a
+      // triple-click carries a trailing space, and this endpoint 404s on the
+      // encoded one — silently losing the richest source on the card
+      // (headword, pronunciation, senses, related and translation) while the
+      // others still answered.
+      `/${encodeURIComponent(request.text.trim().toLowerCase())}` +
       (wantsTranslations ? '?translations=true' : '');
 
     const body = await context.http.json<Response>(url, { signal: context.signal });
@@ -164,7 +170,7 @@ export const freeDictionaryProvider: Provider = {
     return {
       slots: {
         headword: body.word ?? request.text,
-        pronunciation: dedupeBy(pronunciations, (p) => p.ipa),
+        pronunciation: onePerDialect(pronunciations),
         senses,
         related: dedupeBy(related, (r) => `${r.kind}:${r.word.toLowerCase()}`),
         // `text` doubles as the answer when no translator is available, so

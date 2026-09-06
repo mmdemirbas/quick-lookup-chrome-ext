@@ -20,6 +20,7 @@ import type { Frequency } from '../core/frequency.ts';
 import { markFor } from '../core/marks.ts';
 import { sourceName } from '../core/source-names.ts';
 import { partOfSpeech } from '../core/part-of-speech.ts';
+import { inContext } from '../core/providers/page.ts';
 
 const GAP = 10;
 const MARGIN = 8;
@@ -1280,7 +1281,22 @@ export class CardView {
         const sentences = slot.data as string[];
         if (sentences.length === 0) return undefined;
         section.append(el('div', 'label', label ?? id));
-        for (const sentence of sentences) section.append(el('p', 'quote', sentence));
+        for (const sentence of sentences) {
+          // Marked with the same rule the in-context quote uses. When the
+          // page defines the word in the sentence the reader selected it
+          // in — the ordinary case — that lower block is dropped, and this
+          // is what stops the highlight being dropped with it.
+          const split = inContext(sentence, card.query);
+          const quote = el('p', 'quote incontext');
+          if (!split || !split.term) {
+            quote.textContent = sentence;
+          } else {
+            quote.append(document.createTextNode(split.before));
+            quote.append(el('mark', undefined, split.term));
+            quote.append(document.createTextNode(split.after));
+          }
+          section.append(quote);
+        }
         return section;
       }
 
