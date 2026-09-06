@@ -70,10 +70,13 @@ export class HoverLookup {
   #dwellTimer: ReturnType<typeof setTimeout> | undefined;
   #frame = 0;
 
+  /** Named so `destroy` can take it off again; an inline arrow could not. */
+  #onBlur = (): void => this.#deactivate();
+
   constructor(private readonly callbacks: HoverCallbacks) {
     document.addEventListener('keydown', this.#onKeyDown, true);
     document.addEventListener('keyup', this.#onKeyUp, true);
-    window.addEventListener('blur', () => this.#deactivate(), true);
+    window.addEventListener('blur', this.#onBlur, true);
   }
 
   get isActive(): boolean {
@@ -94,9 +97,13 @@ export class HoverLookup {
   destroy(): void {
     document.removeEventListener('keydown', this.#onKeyDown, true);
     document.removeEventListener('keyup', this.#onKeyUp, true);
+    window.removeEventListener('blur', this.#onBlur, true);
     this.#deactivate();
     this.#overlayHost?.remove();
     this.#overlayHost = undefined;
+    // Left set, this pointed at a shadow root with no host in the document,
+    // and `#ensureOverlay` would hand it back to be painted into.
+    this.#overlayRoot = undefined;
   }
 
   #onKeyDown = (event: KeyboardEvent): void => {
@@ -107,6 +114,21 @@ export class HoverLookup {
       return;
     }
     if (!this.#active || !this.#target) return;
+    // Nothing has been looked up yet, so there is no span to reshape and the
+    // arrows are not ours. Claiming them the moment the pointer crossed any
+    // text took Alt+Left away from the browser — Back on Windows and Linux,
+    // word-wise caret movement on macOS — for anyone who rests the pointer
+    // over an article while holding the modifier.
+    if (!this.#lastText) return;
+    // And never from a field someone is typing in.
+    const focused = document.activeElement;
+    if (
+      focused instanceof HTMLInputElement ||
+      focused instanceof HTMLTextAreaElement ||
+      (focused instanceof HTMLElement && focused.isContentEditable)
+    ) {
+      return;
+    }
 
     // Arrow keys reshape the span. This is the part that lets a hover mean
     // a phrase rather than only the word under the pointer.
@@ -139,6 +161,13 @@ export class HoverLookup {
     document.removeEventListener('pointermove', this.#onPointerMove, true);
     if (this.#dwellTimer !== undefined) clearTimeout(this.#dwellTimer);
     this.#dwellTimer = undefined;
+    // The frame already queued is the one that outlived the modifier: a
+    // pointer still moving when the key came up left a callback that
+    // resolved a word, painted the overlay for it and opened a card 220ms
+    // later, for a word the reader was no longer pointing at — with an
+    // overlay nothing would clear until the next press and release.
+    if (this.#frame) cancelAnimationFrame(this.#frame);
+    this.#frame = 0;
     this.#target = undefined;
     this.#lastText = '';
     this.#clearOverlay();
@@ -150,7 +179,9 @@ export class HoverLookup {
     // usefully be read.
     this.#frame = requestAnimationFrame(() => {
       this.#frame = 0;
-      this.#resolve(event.clientX, event.clientY);
+      // Cancelling is not enough on its own: the callback can already be
+      // running when the key comes up.
+      if (this.#active) this.#resolve(event.clientX, event.clientY);
     });
   };
 
@@ -181,6 +212,10 @@ export class HoverLookup {
       this.#clearOverlay();
       return;
     }
+    // Note: `#clearOverlay` also forgets the last word, so pointing away and
+    // back looks it up again. Without that, dismissing a hover card and
+    // returning to the same word while still holding the modifier did
+    // nothing at all, and the only way back was to hover something else.
 
     // Pointing anywhere in a dotted or hyphenated name means the whole name.
     // Shift+arrow narrows it back to one part when that is what was wanted.
@@ -262,5 +297,9 @@ export class HoverLookup {
     const style = this.#overlayRoot?.querySelector('style');
     if (this.#overlayRoot && style) this.#overlayRoot.replaceChildren(style);
     this.#target = undefined;
+    // The pointer has left the word, so the next one is new even if it is
+    // the same word. Remembering it across the gap is what made a dismissed
+    // card impossible to reopen without hovering something else first.
+    this.#lastText = '';
   }
 }

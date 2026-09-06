@@ -187,17 +187,76 @@ function nearestHeading(node: Node | null): string | undefined {
   return undefined;
 }
 
-/** The sentence around the selection, bounded so a long node stays cheap. */
-function enclosingSentence(node: Node | null, selected: string): string | undefined {
-  const text = node?.textContent;
-  if (!text || text.length > 4000) return undefined;
-  const at = text.indexOf(selected);
-  if (at < 0) return undefined;
-  const start = Math.max(0, text.lastIndexOf('.', at) + 1);
-  const endMark = text.indexOf('.', at + selected.length);
-  const end = endMark < 0 ? Math.min(text.length, at + 300) : endMark + 1;
+/**
+ * What ends a sentence. A question and an exclamation are sentences too.
+ *
+ * Only the full stop counted before, so "What is a manifest? A manifest
+ * lists data files." came back whole for a selection in the second half.
+ */
+const SENTENCE_END = new Set(['.', '?', '!']);
+
+/**
+ * The sentence around a known position in a string.
+ *
+ * Separated from the DOM so it can be tested against the strings it is
+ * actually wrong on. `at` is a position, not a search: the caller knows
+ * where the selection starts and this must not go looking for the first
+ * occurrence of the same word.
+ */
+export function sentenceAround(text: string, selected: string, at: number): string | undefined {
+  if (at < 0 || at >= text.length) return undefined;
+
+  let start = 0;
+  for (let i = at - 1; i >= 0; i -= 1) {
+    if (SENTENCE_END.has(text[i] ?? '')) {
+      start = i + 1;
+      break;
+    }
+  }
+
+  let end = -1;
+  for (let i = at + selected.length; i < text.length; i += 1) {
+    if (SENTENCE_END.has(text[i] ?? '')) {
+      end = i + 1;
+      break;
+    }
+  }
+  if (end < 0) {
+    // No terminator at all, so this is a run of prose without punctuation.
+    // Cut at a space rather than mid-word: the fragment is shown to a reader
+    // and quoted into their notes.
+    const limit = Math.min(text.length, at + 300);
+    const space = text.lastIndexOf(' ', limit);
+    end = space > at + selected.length ? space : limit;
+  }
+
   const sentence = text.slice(start, end).trim();
   return sentence.length > selected.length ? sentence : undefined;
+}
+
+/** The sentence around the selection, bounded so a long node stays cheap. */
+function enclosingSentence(
+  node: Node | null,
+  selected: string,
+  offset?: number,
+): string | undefined {
+  const text = node?.textContent;
+  if (!text || text.length > 4000) return undefined;
+
+  // Where the selection actually starts, when that is knowable. Searching
+  // for the text instead found the *first* occurrence, so selecting the
+  // second "manifest" in "A manifest lists files. Each manifest belongs to a
+  // snapshot." reported the first sentence — and that string is what the
+  // card shows as where the word was met, what a note quotes, and what the
+  // senses are ranked against. The offset only means characters when the
+  // container is a text node; on an element it is a child index.
+  const at =
+    node?.nodeType === Node.TEXT_NODE && offset !== undefined && text.startsWith(selected, offset)
+      ? offset
+      : text.indexOf(selected);
+  if (at < 0) return undefined;
+
+  return sentenceAround(text, selected, at);
 }
 
 /**
@@ -224,7 +283,7 @@ export function contextForSelection(range: Range | null, selected: string): Page
 
   const anchor = range.startContainer;
   const heading = nearestHeading(anchor);
-  const sentence = enclosingSentence(anchor, selected);
+  const sentence = enclosingSentence(anchor, selected, range.startOffset);
   const definitions = findDefinitions(selected, pageText()).map((d) => d.text);
   const lang = declaredLanguage(anchor);
 
