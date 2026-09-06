@@ -55,6 +55,26 @@ export type ChatCancelMessage = { type: 'QL_CHAT_CANCEL' };
 export type ChatTakeAttachmentMessage = { type: 'QL_CHAT_TAKE_ATTACHMENT' };
 /** Whether a key is stored, and enough of it to recognise. Never the key. */
 export type ChatKeyStateMessage = { type: 'QL_CHAT_KEY_STATE' };
+/**
+ * Ask the worker whether the bridge is reachable with the token it holds.
+ *
+ * The check belongs here rather than on the settings page because the page
+ * cannot read a stored token — it only ever sees a masked form — so a page
+ * that tested by itself could only test a token typed that minute, and
+ * reported every saved one as refused.
+ */
+export type BridgeHealthMessage = {
+  type: 'QL_BRIDGE_HEALTH';
+  url: string;
+  /** A token typed but not yet saved. Absent means use the stored one. */
+  token?: string;
+};
+
+/** What the bridge said, in the words the settings page shows. */
+export type BridgeHealth =
+  | { ok: true }
+  | { ok: false; reason: 'no-token' | 'refused' | 'unreachable' | 'status'; detail: string };
+
 export type ChatSaveKeyMessage = {
   type: 'QL_CHAT_SAVE_KEY';
   apiKey: string;
@@ -77,7 +97,8 @@ export type ToBackground =
   | ChatCancelMessage
   | ChatTakeAttachmentMessage
   | ChatKeyStateMessage
-  | ChatSaveKeyMessage;
+  | ChatSaveKeyMessage
+  | BridgeHealthMessage;
 
 /** Partial results stream to the content script as separate messages. */
 export type CardUpdateMessage = { type: 'QL_CARD'; card: Card };

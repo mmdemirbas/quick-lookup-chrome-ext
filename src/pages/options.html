@@ -65,8 +65,14 @@
       }
       button.secondary { background: transparent; color: var(--soft); border: 1px solid var(--border); }
       .actions { display: flex; gap: 10px; align-items: center; }
-      .saved { color: var(--accent); font-size: 13px; opacity: 0; transition: opacity .2s; }
-      .saved.show { opacity: 1; }
+      /* `hidden` is only a hint until something says so: a class that sets
+         `display` beats the user-agent rule, so every `.row` the code hid
+         stayed on screen. Measured: 8 elements on this page, 3 on the popup
+         and 6 on the panel that `hidden` could not hide. */
+      [hidden] { display: none !important; }
+      .saved { color: var(--accent); font-size: 13px; opacity: 0; visibility: hidden;
+               transition: opacity .2s; }
+      .saved.show { opacity: 1; visibility: visible; }
       #status { font-size: 13px; color: var(--soft); }
       #status .headline { color: var(--text); font-weight: 600; }
       #status ol { margin: 8px 0 0; padding-left: 20px; }
@@ -216,7 +222,7 @@
           <label id="translationLabel" for="downloadTranslation">Translation model</label>
           <button id="downloadTranslation" class="secondary" type="button" hidden>Download</button>
         </div>
-        <div id="status">Checking…</div>
+        <div id="status" role="status" aria-live="polite">Checking…</div>
       </fieldset>
 
       <fieldset>
@@ -240,7 +246,7 @@
           <input id="chatKey" type="password" autocomplete="off" spellcheck="false"
                  placeholder="sk-ant-…" />
         </div>
-        <div class="row"><span id="chatKeyState" class="hint"></span>
+        <div class="row"><span id="chatKeyState" class="hint" role="status" aria-live="polite"></span>
           <button id="chatForget" class="secondary" type="button" hidden>Forget key</button>
         </div>
         <div class="row" data-backend="bridge">
@@ -253,7 +259,7 @@
           <input id="chatBridgeToken" type="password" autocomplete="off" spellcheck="false" />
         </div>
         <div class="row" data-backend="bridge">
-          <span id="chatBridgeState" class="hint"></span>
+          <span id="chatBridgeState" class="hint" role="status" aria-live="polite"></span>
           <button id="chatBridgeTest" class="secondary" type="button">Test</button>
         </div>
         <p class="hint" data-backend="bridge">
@@ -321,7 +327,7 @@
         <!-- Outside the form on purpose: the form is hidden the moment an
              install succeeds, and a confirmation that vanishes with it is a
              confirmation nobody reads. -->
-        <div class="row"><span id="packStatus" class="hint"></span></div>
+        <div class="row"><span id="packStatus" class="hint" role="status" aria-live="polite"></span></div>
         <ul id="packs"><li class="empty">No packs installed.</li></ul>
       </fieldset>
 
@@ -333,7 +339,7 @@
       <div class="actions">
         <button id="save" type="button">Save</button>
         <button id="reset" class="secondary" type="button">Reset to defaults</button>
-        <span id="saved" class="saved">Saved</span>
+        <span id="saved" class="saved" role="status" aria-live="polite"></span>
       </div>
     </main>
     <script src="options.js"></script>

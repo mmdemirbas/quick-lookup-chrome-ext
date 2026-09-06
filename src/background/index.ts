@@ -27,6 +27,7 @@ import {
 import { translateOnline, UNKNOWN_LANGUAGE } from '../core/online-translate.ts';
 import { sameLanguage } from '../core/language.ts';
 import type {
+  BridgeHealth,
   CollectedContext,
   KeyState,
   StatusResponse,
@@ -451,6 +452,40 @@ async function handleLookup(
   }
 }
 
+/**
+ * Whether the bridge is running and accepts the token we would send it.
+ *
+ * Done here because the token lives here. `/health` needs it like every
+ * other route, so a green answer means both halves are right — running, and
+ * reachable with this token — which is the difference between a settings
+ * page and a mystery in the panel later.
+ */
+async function bridgeHealth(url: string, typed?: string): Promise<BridgeHealth> {
+  const token = typed?.trim() || (await readBridgeToken());
+  if (!token) {
+    return { ok: false, reason: 'no-token', detail: 'No token is stored, and none was typed.' };
+  }
+  const base = url.trim().replace(/\/+$/, '') || DEFAULT_SETTINGS.chat.bridgeUrl;
+  try {
+    const response = await fetch(`${base}/health`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (response.status === 401) {
+      return { ok: false, reason: 'refused', detail: 'The bridge refused the token.' };
+    }
+    if (!response.ok) {
+      return { ok: false, reason: 'status', detail: `It answered HTTP ${response.status}.` };
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'unreachable',
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 ext.runtime.onMessage.addListener((message: ToBackground, sender, sendResponse) => {
   const tabId = sender.tab?.id;
 
@@ -536,6 +571,10 @@ ext.runtime.onMessage.addListener((message: ToBackground, sender, sendResponse) 
         };
         sendResponse(state);
       });
+      return true;
+
+    case 'QL_BRIDGE_HEALTH':
+      void bridgeHealth(message.url, message.token).then(sendResponse);
       return true;
 
     case 'QL_CHAT_SAVE_KEY':

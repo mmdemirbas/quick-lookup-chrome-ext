@@ -12,7 +12,7 @@ import {
   type PackMeta,
   type PackPreview,
 } from '../platform/packs.ts';
-import type { KeyState, StatusResponse } from '../shared/messages.ts';
+import type { BridgeHealth, KeyState, StatusResponse } from '../shared/messages.ts';
 import { MODELS } from '../core/chat.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -68,6 +68,11 @@ function fill(next: Settings): void {
   syncBackendFields();
   syncOnlineFields();
   renderSites();
+  // The pair is read off the language select, and the select only holds the
+  // stored language once this function has run. Without this the row was
+  // always English-to-Turkish, so a reader whose gloss language is German
+  // was offered a Turkish model, told it was ready, and still got no German.
+  void renderTranslation();
 }
 
 /**
@@ -121,26 +126,37 @@ $<HTMLButtonElement>('chatBridgeTest').addEventListener('click', () => {
   const typed = fields.chatBridgeToken.value.trim();
   state.textContent = 'Checking\u2026';
 
+  // Asked of the worker, because the token lives there. This page only ever
+  // sees a masked form of a stored token, so testing from here could only
+  // ever test one typed the same minute — and the box is cleared on save, so
+  // the everyday case sent no token at all and reported every working bridge
+  // as refusing its own token.
   void saveKeyIfTyped()
-    .then(() => (typed ? typed : ext.runtime.sendMessage({ type: 'QL_CHAT_KEY_STATE' })))
-    .then(async () => {
-      const response = await fetch(`${url.replace(/\/+$/, '')}/health`, {
-        headers: typed ? { authorization: `Bearer ${typed}` } : {},
-      });
-      if (response.status === 401) {
-        state.textContent = 'Reached it, but the token was refused.';
+    .then(() =>
+      ext.runtime.sendMessage({
+        type: 'QL_BRIDGE_HEALTH',
+        url,
+        ...(typed ? { token: typed } : {}),
+      }),
+    )
+    .then((health: BridgeHealth) => {
+      if (health.ok) {
+        state.textContent = 'The bridge answered. Claude Code is behind it.';
         return;
       }
-      if (!response.ok) {
-        state.textContent = `Reached it, but it answered HTTP ${response.status}.`;
-        return;
+      switch (health.reason) {
+        case 'no-token':
+          state.textContent = 'No token yet. Paste the one the bridge printed, then test.';
+          return;
+        case 'refused':
+          state.textContent = 'Reached it, but the token was refused.';
+          return;
+        case 'status':
+          state.textContent = `Reached it, but ${health.detail}`;
+          return;
+        default:
+          state.textContent = `Nothing is listening at ${url}. Start it with node bridge/server.mjs. (${health.detail})`;
       }
-      state.textContent = 'The bridge answered. Claude Code is behind it.';
-    })
-    .catch((error: unknown) => {
-      state.textContent = `Nothing is listening at ${url}. Start it with node bridge/server.mjs. (${
-        error instanceof Error ? error.message : String(error)
-      })`;
     });
 });
 
@@ -167,6 +183,32 @@ async function saveKeyIfTyped(): Promise<void> {
   if (key || bridge) await renderKeyState();
 }
 
+/**
+ * A number the reader typed, kept inside the range its input declares.
+ *
+ * `Number(value) || fallback` was two defects in one expression. A
+ * legitimate zero is falsy, so "no wait at all" silently became the default
+ * and the field snapped back with a "Saved" flash as though it had worked.
+ * And nothing enforced `min`/`max`, because these inputs are not inside a
+ * `<form>` and nothing calls `checkValidity()` — so a sixteen-minute dwell
+ * saved happily and stopped the card ever opening again.
+ *
+ * The clamped value is written back, so the field shows what was stored
+ * rather than what was asked for.
+ */
+function numberField(input: HTMLInputElement, fallback: number): number {
+  const typed = input.valueAsNumber;
+  if (!Number.isFinite(typed)) {
+    input.value = String(fallback);
+    return fallback;
+  }
+  const low = input.min === '' ? -Infinity : Number(input.min);
+  const high = input.max === '' ? Infinity : Number(input.max);
+  const kept = Math.min(high, Math.max(low, Math.round(typed)));
+  input.value = String(kept);
+  return kept;
+}
+
 function collect(): Settings {
   return mergeSettings({
     ...settings,
@@ -174,8 +216,8 @@ function collect(): Settings {
       ...settings.trigger,
       mode: fields.mode.value as TriggerMode,
       modifier: fields.modifier.value as Modifier,
-      dwellMs: Number(fields.dwell.value) || DEFAULT_SETTINGS.trigger.dwellMs,
-      maxWords: Number(fields.maxWords.value) || DEFAULT_SETTINGS.trigger.maxWords,
+      dwellMs: numberField(fields.dwell, DEFAULT_SETTINGS.trigger.dwellMs),
+      maxWords: numberField(fields.maxWords, DEFAULT_SETTINGS.trigger.maxWords),
       inEditable: fields.inEditable.checked,
     },
     appearance: {
@@ -191,7 +233,7 @@ function collect(): Settings {
       backend: fields.chatBackend.value as Settings['chat']['backend'],
       bridgeUrl: fields.chatBridgeUrl.value.trim() || DEFAULT_SETTINGS.chat.bridgeUrl,
       model: fields.chatModel.value,
-      contextChars: Number(fields.chatContext.value) || DEFAULT_SETTINGS.chat.contextChars,
+      contextChars: numberField(fields.chatContext, DEFAULT_SETTINGS.chat.contextChars),
     },
   });
 }
@@ -295,6 +337,10 @@ function renderStatus(status: StatusResponse): void {
  */
 function showAbsentTranslator(): void {
   const row = $('translationRow');
+  // Replaced, not appended. This runs again on every change of the language
+  // select, so a reader who tried three languages was shown the same two
+  // lists three times with no way to clear them short of a reload.
+  for (const stale of row.parentElement?.querySelectorAll('[data-advice]') ?? []) stale.remove();
   row.parentElement?.append(
     turningOn('Nothing needs it', [
       'Turkish head-words come from the dictionary sources and are already on.',
@@ -310,6 +356,7 @@ function showAbsentTranslator(): void {
 
 function turningOn(title: string, steps: string[]): HTMLElement {
   const wrap = document.createElement('div');
+  wrap.dataset.advice = '';
   const heading = document.createElement('div');
   heading.className = 'headline';
   heading.textContent = title;
@@ -432,10 +479,23 @@ function renderPacks(packs: PackMeta[]): void {
     remove.type = 'button';
     remove.textContent = 'Remove';
     remove.addEventListener('click', () => {
+      // Asked first, because getting it back means repeating the three-step
+      // download-and-unpack this page documents, outside the browser.
+      const words = pack.entries.toLocaleString();
+      if (!confirm(`Remove ${pack.name}? Its ${words} words go with it, and re-installing means finding the file again.`)) {
+        return;
+      }
       void removePack(pack.id)
         .then(() => ext.runtime.sendMessage({ type: 'QL_PACKS_CHANGED' }))
         .then(() => listPacks())
-        .then(renderPacks);
+        .then((packs) => {
+          renderPacks(packs);
+          // The button that was pressed no longer exists, so focus would
+          // fall to the body and the next Tab would restart at the top of
+          // the page. The file input is the stable thing next to the list.
+          packFields.files.focus();
+          $('packStatus').textContent = `Removed ${pack.name}.`;
+        });
     });
 
     item.append(name, meta, remove);
@@ -509,8 +569,16 @@ void listPacks().then(renderPacks);
 
 function flashSaved(): void {
   const saved = $('saved');
+  // Written on each save rather than left in the markup at opacity zero. A
+  // live region announces a *change*, so a word that is always there is
+  // never read out — and it sat in the accessibility tree permanently, so
+  // the page claimed "Saved" from the moment it opened.
+  saved.textContent = 'Saved';
   saved.classList.add('show');
-  setTimeout(() => saved.classList.remove('show'), 1400);
+  setTimeout(() => {
+    saved.classList.remove('show');
+    saved.textContent = '';
+  }, 1400);
 }
 
 $('save').addEventListener('click', () => {
@@ -518,7 +586,15 @@ $('save').addEventListener('click', () => {
   // go to `sync` and replicate to every signed-in browser, and a key must
   // not travel that way.
   void saveKeyIfTyped()
-    .then(() => ext.runtime.sendMessage({ type: 'QL_SAVE_SETTINGS', settings: collect() }))
+    .then(() => ext.runtime.sendMessage({ type: 'QL_GET_SETTINGS' }))
+    .then((current) => {
+      // Everything this page does not own is taken from storage at the
+      // moment of saving, not from the copy read when the tab was opened.
+      // `collect()` spreads that base, so a per-site rule the popup wrote
+      // while this tab sat open used to be deleted by pressing Save here.
+      settings = mergeSettings(current);
+      return ext.runtime.sendMessage({ type: 'QL_SAVE_SETTINGS', settings: collect() });
+    })
     .then((stored) => {
       fill(mergeSettings(stored));
       flashSaved();
@@ -526,6 +602,8 @@ $('save').addEventListener('click', () => {
 });
 
 $('reset').addEventListener('click', () => {
+  // Every setting and every per-site rule, on one click, with no undo.
+  if (!confirm('Reset every setting, including per-site rules, to its default?')) return;
   void ext.runtime
     .sendMessage({ type: 'QL_SAVE_SETTINGS', settings: structuredClone(DEFAULT_SETTINGS) })
     .then((stored) => {

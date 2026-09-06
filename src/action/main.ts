@@ -94,7 +94,13 @@ void (async () => {
     if (siteSelect) siteSelect.disabled = true;
     return;
   }
-  if (siteLabel) siteLabel.textContent = host;
+  // Into the span, not over the label. Replacing the whole label left the
+  // select announcing as the bare hostname, with nothing saying what it
+  // does — the popup's only control, and unnamed to anyone listening.
+  if (siteLabel) {
+    siteLabel.textContent = host;
+    siteLabel.title = host;
+  }
 
   const settings = mergeSettings(await ext.runtime.sendMessage({ type: 'QL_GET_SETTINGS' }));
   siteSelect.value = triggerModeFor(settings, host);

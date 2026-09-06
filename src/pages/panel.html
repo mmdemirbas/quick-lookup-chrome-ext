@@ -42,6 +42,11 @@
       .views button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
       .views button:hover { color: var(--text); }
 
+      /* `hidden` is only a hint until something says so: a class that sets
+         `display` beats the user-agent rule, so every `.row` the code hid
+         stayed on screen. Measured: 8 elements on this page, 3 on the popup
+         and 6 on the panel that `hidden` could not hide. */
+      [hidden] { display: none !important; }
       .view { flex: 1 1 auto; min-height: 0; display: none; flex-direction: column; }
       .view[data-active="true"] { display: flex; }
 
