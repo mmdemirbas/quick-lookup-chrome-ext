@@ -124,6 +124,16 @@ test('a summary that opens with the gloss keeps only what it adds', () => {
   );
   // Too short to be worth matching on at all.
   assert.equal(withoutLead('A bundler for the web.', 'A bundler.'), undefined);
+  // A gloss cut mid-sentence is not a lead. `normalise` drops the ellipsis,
+  // so this used to "match" and keep the back half of the sentence the gloss
+  // was cut in, printed as the summary paragraph.
+  assert.equal(
+    withoutLead(
+      'Apache Iceberg is an open table format for huge analytic tables, usable from Spark and Flink.',
+      'Apache Iceberg is an open table format for huge analytic tables, usable from…',
+    ),
+    undefined,
+  );
 });
 
 test('the same sentence is never shown as both the gloss and the summary', () => {

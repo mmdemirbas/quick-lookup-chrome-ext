@@ -19,11 +19,22 @@ const ENTITIES: Record<string, string> = {
  * into the DOM as text, so this is about readability rather than safety —
  * but stripping here means a stray tag never reaches the card either way.
  */
+/** One character, or nothing when the number cannot be one. */
+function codePoint(value: number): string | undefined {
+  if (!Number.isInteger(value) || value < 0 || value > 0x10ffff) return undefined;
+  // Surrogate halves are not characters on their own.
+  if (value >= 0xd800 && value <= 0xdfff) return undefined;
+  return String.fromCodePoint(value);
+}
+
 export function stripHtml(input: string): string {
   return input
     .replace(/<[^>]*>/g, '')
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCodePoint(parseInt(code, 16)))
+    // `String.fromCodePoint` throws a RangeError above U+10FFFF, and this
+    // runs on text a remote source wrote. An uncaught throw here costs the
+    // whole slot, so an unusable reference is left as it was written.
+    .replace(/&#(\d+);/g, (whole, code: string) => codePoint(Number(code)) ?? whole)
+    .replace(/&#x([0-9a-f]+);/gi, (whole, code: string) => codePoint(parseInt(code, 16)) ?? whole)
     .replace(/&([a-z]+);/gi, (whole, name: string) => ENTITIES[name.toLowerCase()] ?? whole)
     .replace(/\s+/g, ' ')
     .trim();

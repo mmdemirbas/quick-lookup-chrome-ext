@@ -960,6 +960,15 @@ async function checkDictionaryPack(
   // also exercises the button, which nothing else does.
   const cleanup = await context.newPage();
   await cleanup.goto(`chrome-extension://${id}/options.html`, { waitUntil: 'domcontentloaded' });
+  // Removing a pack asks first, because getting it back means finding and
+  // unpacking the file again outside the browser. Playwright dismisses
+  // dialogs unless told otherwise, so this both accepts it and records what
+  // it said — a confirmation that stops appearing is a silent regression.
+  let asked = '';
+  cleanup.on('dialog', (dialog) => {
+    asked = dialog.message();
+    void dialog.accept();
+  });
   await cleanup.locator('#packs li button').first().click();
   const gone = await cleanup
     .locator('#packs li.empty')
@@ -967,6 +976,11 @@ async function checkDictionaryPack(
     .then(() => true)
     .catch(() => false);
   record('a pack can be removed again', gone);
+  record(
+    'and it asks before it does, naming what goes',
+    /remove/i.test(asked) && /\bwords\b/.test(asked),
+    asked || 'nothing was asked',
+  );
   await cleanup.close();
 }
 

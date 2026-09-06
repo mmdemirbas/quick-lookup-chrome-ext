@@ -186,15 +186,21 @@ async function addGloss(
 
   // What language the subject is in, in order of how much it can be trusted.
   //
-  // A dictionary definition is written in English whatever the word was, so
-  // the word path knows. Anything else is the reader's own selection, and
-  // assuming English there is how a German sentence came back as itself:
-  // both services accept `en` for German text and return the input, with no
-  // error to notice. A detector, where the browser has one, is evidence; the
-  // page's `lang` is a declaration; neither may be invented.
+  // A dictionary definition is written in the language the dictionary was
+  // asked in, so the word path knows — and that is the interface language,
+  // not English. Both dictionary sources build their URL from it
+  // (`entries/tr/…`, `tr.wiktionary.org`), so a Turkish interface gets
+  // Turkish definitions; calling those English asked for a Turkish-to-
+  // Turkish translation, which both services accept and answer with the
+  // input unchanged. The card then printed the same sentence twice, once as
+  // the definition and once as its translation.
+  //
+  // Anything else is the reader's own selection. A detector, where the
+  // browser has one, is evidence; the page's `lang` is a declaration;
+  // neither may be invented.
   const source =
     card.intent === 'word'
-      ? 'en'
+      ? uiLanguage().split('-')[0] || 'en'
       : ((await detectLanguage(subject)) ?? pageLanguage ?? undefined);
   if (source && sameLanguage(source, targetLanguage)) return false;
 

@@ -67,8 +67,22 @@ function translationIn(sentence: Sentence, language: string): string | undefined
  * letters to appear keeps the useful inflections and drops the rest.
  */
 export function showsWord(text: string, query: string): boolean {
-  const stem = query.trim().toLowerCase().slice(0, Math.max(4, query.trim().length - 3));
-  return stem.length > 0 && text.toLowerCase().includes(stem);
+  const wanted = query.trim().toLowerCase();
+  if (!wanted) return false;
+  const stem = wanted.slice(0, Math.max(4, wanted.length - 3));
+
+  // A short query is its own stem, and plain containment then passes any
+  // sentence with those letters anywhere: `cat` matched "Communication is
+  // important." and "He is a catalyst." The stem still has to be able to
+  // start a longer word — that is the whole point of matching a stem — so
+  // the requirement is that it starts one, not that it appears inside one.
+  const at = text.toLowerCase().indexOf(stem);
+  if (at < 0) return false;
+  if (stem.length >= wanted.length) {
+    const before = text[at - 1];
+    return before === undefined || !/[\p{L}\p{N}]/u.test(before);
+  }
+  return true;
 }
 
 /**

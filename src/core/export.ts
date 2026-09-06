@@ -384,9 +384,17 @@ function toMarkdown(card: Card, context: ExportContext): string {
         break;
       case 'quotes':
         parts.push(
-          [`### ${block.label}`, '', ...block.items.map((s) => `> ${escapeMarkdown(s)}`)].join(
-            '\n',
-          ),
+          [
+            `### ${block.label}`,
+            '',
+            // Separated, because consecutive `>` lines are one blockquote in
+            // CommonMark: two sentences from different parts of the page ran
+            // together into a single continuous quotation. The examples
+            // block above already does this for the same reason.
+            ...block.items.flatMap((s, i) =>
+              i === 0 ? [`> ${escapeMarkdown(s)}`] : ['>', `> ${escapeMarkdown(s)}`],
+            ),
+          ].join('\n'),
         );
         break;
       case 'chips':
@@ -458,7 +466,16 @@ function toAnki(card: Card, context: ExportContext): string {
       .replace(/\r?\n/g, '<br>')
       .trim();
 
-  const back = toText(card, context)
+  // One line, because the back is built by dropping the front's line count
+  // and a selection can carry a newline — a phrase picked up across a `<br>`
+  // or two short blocks. The front was then two lines, one was dropped, and
+  // the back opened with the tail of the front plus the intent marker: the
+  // giveaway the line below exists to prevent.
+  const front = card.query.replace(/\s+/g, ' ').trim();
+  // Flattened before the text is built, not just in the field. The back
+  // drops the first line of that text, and its first line is the query — so
+  // a two-line query left half of itself sitting at the top of the back.
+  const back = toText({ ...card, query: front }, context)
     .split('\n')
     // The first line is the front of the card; repeating it on the back
     // turns every review into a giveaway.
@@ -466,7 +483,7 @@ function toAnki(card: Card, context: ExportContext): string {
     .join('\n')
     .trim();
 
-  return ['#separator:Tab', '#html:true', '#tags:quick-lookup', `${field(card.query)}\t${field(back)}`].join(
+  return ['#separator:Tab', '#html:true', '#tags:quick-lookup', `${field(front)}\t${field(back)}`].join(
     '\n',
   );
 }

@@ -296,3 +296,37 @@ test('markdown quotes each example apart from the next', () => {
   // The band joins the line under the heading rather than taking a section.
   assert.match(markdown, /^\*word · UK \/ɪfˈɛməɹəl\/ · fairly common\*$/m);
 });
+
+test('two sentences from the page are two quotations, not one', () => {
+  // Consecutive `>` lines are a single blockquote paragraph in CommonMark,
+  // so two sentences from different parts of the page ran together into one
+  // continuous quotation in the note.
+  const card = createCard('r1', 'manifest', 'technical');
+  applyResult(card, 'page', {
+    slots: {
+      onPage: [
+        'A manifest is a metadata file that lists the data files.',
+        'Manifests are the layer between a snapshot and its data files.',
+      ],
+    },
+  });
+  finalise(card);
+
+  const markdown = formatCard(card, 'markdown', { url: 'https://example.com/', title: 'Spec' });
+  assert.match(markdown, />\s*\n>\s/, 'a blank quote line separates them');
+});
+
+test('the Anki front is one line, whatever was selected', () => {
+  // The back is built by dropping the front's line count, so a selection
+  // carrying a newline left the tail of the front sitting on the back.
+  const card = createCard('r1', 'quick\nlookup', 'word');
+  applyResult(card, 'page', { slots: { onPage: ['A quick lookup of a word.'] } });
+  finalise(card);
+
+  const anki = formatCard(card, 'anki', { url: 'https://example.com/', title: 'Spec' });
+  const row = anki.split('\n').at(-1) ?? '';
+  const [front, back] = row.split('\t');
+
+  assert.equal(front, 'quick lookup', 'the front is the selection on one line');
+  assert.doesNotMatch(back ?? '', /^lookup/, 'and the back does not open with its tail');
+});

@@ -262,7 +262,19 @@ export function withoutLead(text: string, lead: string): string | undefined {
 
   for (let cut = 1; cut <= text.length; cut++) {
     const prefix = normalise(text.slice(0, cut));
-    if (prefix === wanted) return text.slice(cut).replace(/^[\s.,;:—–-]+/, '');
+    if (prefix === wanted) {
+      // Only when the lead ended a sentence. `normalise` drops the ellipsis
+      // a truncated gloss carries, so a gloss cut at 180 characters still
+      // "matched" a prefix of the longer summary — and what was kept was the
+      // back half of the sentence it was cut in, printed as the summary.
+      // The remainder of a genuine lead opens with the terminator the
+      // normalising removed.
+      const rest = text.slice(cut);
+      // Nothing left: the summary was the gloss and adds nothing at all.
+      if (rest.trim() === '') return '';
+      if (!/^\s*[.!?]/.test(rest)) return undefined;
+      return rest.replace(/^[\s.,;:—–-]+/, '');
+    }
     if (prefix.length > wanted.length) return undefined;
   }
   return normalise(text) === wanted ? '' : undefined;

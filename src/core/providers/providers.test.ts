@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { showsWord } from './tatoeba.ts';
 import type { HttpClient, LookupRequest, ProviderContext } from '../types.ts';
 import { freeDictionaryProvider, shortDialect } from './free-dictionary.ts';
 import { wiktionaryProvider } from './wiktionary.ts';
@@ -818,4 +819,18 @@ test('a paragraph is not a sentence, and a word is not a context', () => {
   assert.equal(inContext('manifest', 'manifest'), undefined);
   assert.equal(inContext('   ', 'manifest'), undefined);
   assert.equal(inContext('A manifest file.', '  '), undefined);
+});
+
+test('a short query has to start a word, not merely appear inside one', () => {
+  // The stem guard exists to keep inflections and drop coincidences, but for
+  // a query of four letters or fewer the stem is the whole word and plain
+  // containment passed anything with those letters in it.
+  assert.equal(showsWord('The cat sat on the mat.', 'cat'), true);
+  assert.equal(showsWord('Cats are asleep.', 'cat'), true, 'an inflection still counts');
+  assert.equal(showsWord('He is a catalyst.', 'cat'), true, 'so does a longer word it starts');
+  assert.equal(showsWord('Communication is important.', 'cat'), false);
+  assert.equal(showsWord('A duplicate entry.', 'cat'), false);
+
+  // Longer queries keep matching on the stem, which is the point.
+  assert.equal(showsWord('The table was partitioned by day.', 'partition'), true);
 });
