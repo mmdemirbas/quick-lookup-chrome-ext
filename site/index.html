@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quick Lookup — select text on any page and get the answer in place</title>
+<meta name="description" content="A browser extension that answers a selection where you are reading: definitions and pronunciation for a word, an entity card for a name, the sense that fits the page for a technical term. Ranked locally, no account, no model.">
+<meta property="og:title" content="Quick Lookup — select text on any page and get the answer in place">
+<meta property="og:description" content="A browser extension that answers a selection where you are reading: definitions and pronunciation for a word, an entity card for a name, the sense that fits the page for a technical term. Ranked locally, no account, no model.">
+<meta property="og:image" content="https://mmdemirbas.github.io/quick-lookup-chrome-ext/assets/card-on-page.png">
+<link rel="canonical" href="https://mmdemirbas.github.io/quick-lookup-chrome-ext/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&display=swap">
+<link rel="stylesheet" href="style.css">
+<style>
+:root { --accent: #4f46e5; --accent-2: #0d9488; --accent-on: #ffffff; --accent-ink-on-paper: #4338ca; }
+@media (prefers-color-scheme: dark) { :root { --accent-ink-on-paper: #a5b4fc; } }
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="brand" href="#"><span class="mark" aria-hidden="true"></span>Quick Lookup</a>
+  <nav><a href="#how" class="">How it decides</a><a href="#install" class="">Install</a><a href="#privacy" class="hide-sm">Privacy</a><a class="gh" href="https://github.com/mmdemirbas/quick-lookup-chrome-ext" rel="noopener"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a></nav>
+</div></header>
+
+<main>
+<section class="hero"><div class="wrap">
+  <p class="eyebrow">Browser extension · Chrome, Brave, Edge, Firefox · TypeScript · MIT</p>
+  <h1>The answer, where the question was.</h1>
+  <p class="lead">Select text on any page and a card opens under it with the most useful answer for that kind of text. An English word gets definitions, pronunciation and related words; a name gets an entity card; a technical term gets the sense that fits the page you are reading. Facts come from data sources, and meanings are ranked against the page locally, with no model.</p>
+  <div class="cta"><a class="btn btn-solid" href="#install">Install</a><a class="btn btn-quiet" href="https://github.com/mmdemirbas/quick-lookup-chrome-ext" rel=noopener><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>Source on GitHub</a></div>
+  <div class="stats"><div><b>7</b><span>kinds of selection, each with its own card</span></div><div><b>284</b><span>unit tests over the core, no browser needed</span></div><div><b>0</b><span>accounts, keys or models needed to look something up</span></div></div>
+  <div class="visual"><figure class="hero-fig frame window"><div class="bar"><i></i><i></i><i></i></div><img src="assets/card-on-page.png" alt="The card open under the word &quot;manifest&quot; on a page about table formats: pronunciation, how common the word is, the sentence on this page that defines it, then dictionary senses" loading="eager" width="1040" height="650"></figure></div>
+</div></section>
+
+<section id="why"><div class="wrap">
+  <p class="pitch"><em>manifest</em> on a page about table formats is a metadata file, not the everyday adjective. The page is profiled once — title, headings, description — and that profile ranks the senses, so the card leads with the meaning the page uses, and the first source it consults is the page itself: a sentence there that defines the word.</p>
+  <div class="features" style="margin-top: clamp(1.5rem, 4vw, 2.5rem)"><div class="feature"><div class="glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div><h3>One card per kind of text</h3><p>Word, phrase, entity, technical term, citation, quantity or foreign text, decided locally in under a millisecond. When the answer is ambiguous it fetches both paths rather than guessing.</p></div><div class="feature"><div class="glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 10 5-10 5L2 7l10-5z"/><path d="m2 12 10 5 10-5"/><path d="m2 17 10 5 10-5"/></svg></div><h3>Several sources per question</h3><p>Wiktionary, Wikipedia, Wikidata, Datamuse, Tatoeba, Stack Exchange, package registries, MDN. One failing removes a line, never the card; every meaning links to the page it came from.</p></div><div class="feature"><div class="glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg></div><h3>Dictionary packs, offline</h3><p>Install a dictd or StarDict file — FreeDict has about 150 language pairs — and look-ups answer at the speed of local storage, with no daily allowance.</p></div><div class="feature"><div class="glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3l4 4-4 4"/><path d="M3 7h18"/><path d="M7 21l-4-4 4-4"/><path d="M21 17H3"/></svg></div><h3>Two words side by side</h3><p>Drag a card and it stays; the next selection opens beside it. Up to four at once, so two words can be compared on screen.</p></div><div class="feature"><div class="glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6"/></svg></div><h3>Keep what you find</h3><p>Copy a card as text, as Markdown for notes, or as an Anki note, with the sentence you met the word in. Star a look-up and it survives the list's cap and Clear.</p></div><div class="feature"><div class="glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 17l.8 2.2L22 20l-2.2.8L19 23l-.8-2.2L16 20l2.2-.8L19 17z"/></svg></div><h3>Discuss the page, optionally</h3><p>Right-click a page to ask Claude about it in the side panel, with your own API key or through a local bridge to Claude Code that stores no key in the browser. Off until you set it up.</p></div></div>
+</div></section>
+
+<section id="how"><div class="wrap">
+  <div class="section-head"><h2>How it decides what to show</h2><p>Four steps, all but the sources local to the browser.</p></div>
+  <div class="how wide"><div></div><ol class="steps"><li><div><b>Signals</b><p>Token count, casing, script, identifier style, whether the selection is inside code, which software ecosystems the page shows evidence of. Under a millisecond.</p></div></li><li><div><b>Intent</b><p>One of seven kinds. Ambiguity widens the fetch: providers run in parallel and merge, so two paths cost one extra request and give a better card.</p></div></li><li><div><b>Sources</b><p>The page first — a sentence that defines the selection costs no request and sends nothing. Then the data sources for that intent, each with its own failure mode.</p></div></li><li><div><b>Page context</b><p>The page's profile ranks the senses and decides which sources are worth asking: a package registry answers only on a page about that ecosystem.</p></div></li></ol></div>
+  
+</div></section>
+<section id="install"><div class="wrap">
+  <div class="section-head"><h2>Install</h2><p>Not in a store yet: build it and load it unpacked. Needs Node.js.</p></div>
+  <div class="install two"><div><h3>Build</h3><pre class="code"><code>git clone https://github.com/mmdemirbas/quick-lookup-chrome-ext.git
+cd quick-lookup-chrome-ext
+npm install
+npm run build                 <span class="c"># dist/chromium</span>
+node build.mjs --firefox      <span class="c"># dist/firefox</span></code></pre><p class=note><code>npm run check</code> runs the type check, the unit tests and the build.</p></div><div><h3>Load</h3><pre class="code"><code>chrome://extensions   (or brave://, edge://)
+  Developer mode: on
+  Load unpacked: dist/chromium
+
+about:debugging        (Firefox)
+  Load Temporary Add-on: dist/firefox</code></pre><p class=note>Settings open from the toolbar popup; the trigger can be changed per site.</p></div></div>
+</div></section>
+<section id="cards"><div class="wrap">
+  <div class="section-head"><h2>Three selections, three cards</h2><p>Rendered from the real card on canned answers; <code>npm run shots</code> draws them again.</p></div>
+  <div class="gallery"><figure class="fig"><img src="assets/card-word-light.png" alt="Card for &quot;ephemeral&quot;: pronunciation, frequency, senses, a Turkish translation, example sentences, related words" loading="lazy" width="760" height="1576"><figcaption>A word: senses from Wiktionary and freedictionaryapi.com, how common it is, a translation, sentences it is used in.</figcaption></figure><figure class="fig"><img src="assets/card-technical-light.png" alt="Card for &quot;webpack&quot;: the page&#x27;s own definition, a summary, facts from the package registry, where to look it up" loading="lazy" width="760" height="1142"><figcaption>A technical term: the page's own definition first, then the package registry and where else to look.</figcaption></figure><figure class="fig"><img src="assets/card-entity-light.png" alt="Card for &quot;Alan Turing&quot;: a Wikipedia summary with birth and death dates and field" loading="lazy" width="760" height="938"><figcaption>A name: a Wikipedia summary with facts from Wikidata.</figcaption></figure></div>
+</div></section><section id="privacy"><div class="wrap">
+  <div class="section-head"><h2>What leaves the browser</h2></div>
+  <ul class="plain"><li><b>No analytics, no remote code, no account.</b></li><li><b>A selection goes only to the source being asked</b>, and only when a look-up was asked for.</li><li><b>Online translation is off by default</b>; it is the one setting that sends your text somewhere it was not already going, and the card names the service that answered.</li><li><b>Discussing a page sends the page</b>, so it needs a stored key or the local bridge <i>and</i> a right-click on that page; it never runs on its own. The key is kept on the device, not synced.</li><li><b>The local bridge</b> listens on 127.0.0.1 only, requires a token, and refuses requests from web pages. Claude Code runs there with every tool that reads, writes or reaches the network switched off.</li></ul>
+</div></section>
+
+<section id="more"><div class="wrap">
+  <div class="section-head"><h2>Go deeper</h2></div>
+  <div class="links"><a class="link-card" href="https://github.com/mmdemirbas/quick-lookup-chrome-ext#readme" rel=noopener><b>README</b><span>Triggering, the side panel, dictionary packs, every permission and why it is asked for.</span><small>GitHub</small></a><a class="link-card" href="https://github.com/mmdemirbas/quick-lookup-chrome-ext/blob/main/SPEC.md" rel=noopener><b>Design</b><span>What the extension is for, how intent and ranking work, and the decisions behind them.</span><small>SPEC.md</small></a><a class="link-card" href="https://github.com/mmdemirbas/quick-lookup-chrome-ext/blob/main/docs/redesign-2026-08-11.md" rel=noopener><b>The redesign</b><span>The landscape research and the reasoning behind the August 2026 rewrite.</span><small>docs/redesign-2026-08-11.md</small></a></div>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  <span>Quick Lookup</span>
+  <span class="spacer"></span>
+  <a href="https://github.com/mmdemirbas/quick-lookup-chrome-ext" rel="noopener">GitHub</a>
+  <a href="https://mdemirbas.com/en/projects/quick-lookup/" rel="noopener">Muhammed Demirbaş</a>
+  <a href="https://mdemirbas.com/" rel="noopener">Other projects</a>
+</div></footer>
+</body>
+</html>
