@@ -15,6 +15,7 @@
     "sweep": "node tools/relevance-sweep.ts",
     "unused": "node tools/unused.mjs",
     "e2e": "npm run build && node tools/e2e.ts",
+    "shots": "npm run preview && node tools/screenshots.mjs",
     "preview": "esbuild tools/card-preview.ts --bundle --outfile=dist/preview/preview.js --format=iife --target=chrome116 && cp tools/preview/index.html dist/preview/index.html"
   },
   "devDependencies": {

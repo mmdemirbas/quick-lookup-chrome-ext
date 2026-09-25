@@ -9,6 +9,14 @@ Facts come from data sources. Meanings are ranked against the page you are
 reading, locally and with no model. The browser's own translator, where
 there is one, only translates — it is never the source of a fact.
 
+![The card open under the word "manifest" on a page about table formats: pronunciation, how common the word is, the sentence on this page that defines it, then dictionary senses](docs/images/card-on-page.png)
+
+| A word | A technical term | A name |
+|---|---|---|
+| ![Card for "ephemeral": pronunciation, frequency, senses, a Turkish translation, example sentences, related words](docs/images/card-word-light.png) | ![Card for "webpack": the page's own definition, a summary, facts from the package registry, where to look it up](docs/images/card-technical-light.png) | ![Card for "Alan Turing": a Wikipedia summary with birth and death dates and field](docs/images/card-entity-light.png) |
+
+Website: <https://mmdemirbas.github.io/quick-lookup-chrome-ext/>
+
 Design and reasoning: `SPEC.md`.
 Landscape research and the decisions behind it: `docs/redesign-2026-08-11.md`.
 Competitor survey, defect causes and the current roadmap: `docs/round-2026-08-16.md`.
@@ -48,6 +56,7 @@ For Firefox, build with `node build.mjs --firefox` and load
 | `npm run sweep` | Puts 20 known terms through the entity provider against live Wikipedia |
 | `npm run unused` | Lists code nothing reaches — a name defined once and called nowhere |
 | `npm run preview` | Builds a page that renders the card outside the extension |
+| `npm run shots` | Renders the card pictures in `docs/images` from that page |
 
 `npm run smoke` is separate from `npm run check` on purpose. Unit tests
 use canned payloads, so they keep passing when a source goes down or
