@@ -275,3 +275,11 @@ into something worth coming back to.
   words, not a model. Translation runs on the device too when the browser
   provides a translator, and is skipped when it does not.
 - Everything stored stays local. Preferences sync; the cache does not.
+
+## License
+
+The code is MIT; see [LICENSE](LICENSE). The data it shows is not part of this
+repository and keeps its own terms: dictionary text fetched from Wiktionary is
+CC BY-SA, which is why every Wiktionary panel links back to its page, and
+dictionary packs such as FreeDict's are supplied by you, never redistributed
+here.

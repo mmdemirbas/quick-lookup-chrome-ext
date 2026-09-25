@@ -12,6 +12,10 @@ docs/dist/
 # scripts, screenshots taken to check a render, captured payloads.
 tmp/
 
+# Session hand-over notes and dated backups made while editing by hand.
+HANDOFF.md
+*.bak-*
+
 # Tooling artifacts
 .playwright-mcp/
 docs/_oku
